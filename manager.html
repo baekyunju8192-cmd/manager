@@ -440,6 +440,30 @@ function extractSido(addr) {
 }
 function escHtml(s) { return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
+// 신규영업처 "방문 완료" 판단 — az_sales_map.html에서 두 경로로 각각 기록됨을 감안해 합산
+//  ① 신규영업처 시트: 카드에서 직접 "방문 체크"/"메모 작성" → prospects의 방문여부
+//  ② 영업계획 시트: "경로(영업계획)에 추가" 후 동선에서 체크 → data.plan에서 유형='신규영업처' + 방문완료=true
+// 거래처명 기준 정확 매칭(normName)으로 합치며, 표기 차이로 인한 매칭 누락 가능성은 있음
+function buildVisitedProspectSet() {
+  const visited = new Set();
+  prospects.forEach(p => {
+    if (String(p['방문여부']).trim().toLowerCase() === 'true') {
+      visited.add(normName(p['업체명']));
+    }
+  });
+  data.plan.forEach(r => {
+    if (r['유형'] === '신규영업처' && String(r['방문완료']).trim().toLowerCase() === 'true') {
+      visited.add(normName(r['거래처명']));
+    }
+  });
+  return visited;
+}
+
+// 신규 개척 목적의 영업계획 행 여부 — '신규'(신규거래처 목록에서 선택) + '신규영업처'(신규영업처를 경로에 추가) 둘 다 포함
+function isNewBizPlanRow(r) {
+  return r['유형'] === '신규' || r['유형'] === '신규영업처';
+}
+
 // =====================================================
 // 데이터 로드
 // =====================================================
@@ -565,8 +589,9 @@ function renderOverview() {
   const dormant = filterByScope(data.dormant);
   const planToday = filterByScope(data.plan);
 
-  // 신규거래처 개척 목표(유형='신규')만 집계 — 기존/휴면은 정기방문이라 목표 대비율 의미가 적어 제외
-  const newPlanToday = planToday.filter(r => r['유형'] === '신규');
+  // 신규 개척 목표 집계 — '신규'(신규거래처 목록 선택) + '신규영업처'(경로 추가) 합산
+  // 기존/휴면은 정기방문이라 목표 대비율 의미가 적어 제외
+  const newPlanToday = planToday.filter(isNewBizPlanRow);
   const newPlanTotal = newPlanToday.length;
   const newPlanDone = newPlanToday.filter(r => String(r['방문완료']).trim().toLowerCase() === 'true').length;
   const newVisitRate = newPlanTotal ? Math.round(newPlanDone/newPlanTotal*100) : null;
@@ -609,7 +634,7 @@ function renderOverview() {
         <div class="stat-sub">거래 중단 상태</div>
       </div>
       <div class="card">
-        <div class="card-title">신규거래처 방문률</div>
+        <div class="card-title">신규개척 방문률</div>
         <div class="stat-num ${newVisitRate===null?'':(newVisitRate>=70?'green':newVisitRate>=40?'orange':'red')}">${newVisitRate===null?'-':newVisitRate+'%'}</div>
         <div class="stat-sub">${newPlanTotal ? `${newPlanDone} / ${newPlanTotal}건 (오늘 계획 중 신규개척)` : '오늘 등록된 신규개척 계획 없음'}</div>
       </div>
@@ -860,10 +885,12 @@ function renderStaffContent() {
     const done = rows.filter(r => String(r['방문완료']).trim().toLowerCase() === 'true').length;
     return { total: rows.length, done, rate: rows.length ? Math.round(done/rows.length*100) : null };
   }
-  // 신규영업처 등록 건 대비 방문 처리(방문여부=true) 비율 — 기간 내 등록분 기준
+  // 신규영업처 등록 건 대비 방문 처리 비율 — 등록은 신규영업처 시트 기준(기간 내 등록분),
+  // 방문 처리 여부는 신규영업처 시트 직접체크 + 영업계획(유형='신규영업처') 체크 둘 다 합산해서 판단
+  const visitedProspectSet = buildVisitedProspectSet();
   function prospectVisitStats(name) {
     const rows = myProspects.filter(p => p['등록자'] === name);
-    const visited = rows.filter(p => String(p['방문여부']).trim().toLowerCase() === 'true').length;
+    const visited = rows.filter(p => visitedProspectSet.has(normName(p['업체명']))).length;
     return { total: rows.length, visited, rate: rows.length ? Math.round(visited/rows.length*100) : null };
   }
   function resultDist(name) {
@@ -1217,18 +1244,6 @@ function renderTargetsPage() {
   renderTargetsContent();
 }
 
-// 원산지검토 타겟 중 신규영업처(prospects)로 등록되고 방문 처리된 업체를 정확 매칭으로 찾아냄
-// 표기 차이(㈜/(주) 등)는 normName으로 흡수하되, 완전히 다른 표기는 매칭되지 않을 수 있음
-function buildVisitedTargetSet() {
-  const visited = new Set();
-  prospects.forEach(p => {
-    if (String(p['방문여부']).trim().toLowerCase() === 'true') {
-      visited.add(normName(p['업체명']));
-    }
-  });
-  return visited;
-}
-
 function getFilteredTargets() {
   const existingNames = new Set([...data.active, ...data.new].map(r => normName(r['거래처명'])));
   let targets = data.origin.filter(r => {
@@ -1247,7 +1262,7 @@ function getFilteredTargets() {
 
 function renderTargetsContent() {
   const targets = getFilteredTargets();
-  const visitedSet = buildVisitedTargetSet();
+  const visitedSet = buildVisitedProspectSet();
   const catCnt = {};
   targets.forEach(t => { const c = t['카테고리']||'기타'; catCnt[c] = (catCnt[c]||0)+1; });
 
