@@ -205,6 +205,7 @@ table.dt tr:last-child td { border-bottom:none; }
   <div class="hright">
     <span class="region-tag" id="region-tag">-</span>
     <span id="hstatus">로딩 중...</span>
+    <button class="logout-btn" id="refresh-btn" onclick="refreshData()">새로고침</button>
     <button class="logout-btn" onclick="mgrLogout()">로그아웃</button>
   </div>
 </header>
@@ -260,7 +261,7 @@ const MANAGERS = {
   '전북팀장':    { pw:'0308', region:'전북' }
 };
 const REGION_STAFF = {
-  '관리자':    ['백윤주','신상명'],
+  // '관리자'는 지역별 배정과 무관하게 항상 전체 데이터를 봄 (isStaffInScope에서 특수 처리)
   '광주':     ['FIXME'],
   '전남동부':  ['FIXME'],
   '전남서부':  ['FIXME'],
@@ -282,6 +283,7 @@ let mgrMap = null;        // 동선 지도 kakao.maps.Map 인스턴스
 let mgrMarkers = [];
 let mgrPolylines = [];
 let curIW = null;
+function clearIW() { if (curIW) { curIW.setMap(null); curIW = null; } }
 
 // =====================================================
 // 로그인
@@ -443,6 +445,32 @@ function renderTab(key) {
   if (!fn) return;
   fn();
   renderedTabs.add(key);
+}
+
+// 데이터만 다시 불러와 이미 렌더된 탭들을 갱신 (지도 탭은 DOM 재생성 없이 데이터만 갱신)
+async function refreshData() {
+  const btn = document.getElementById('refresh-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '새로고침 중...'; }
+  document.getElementById('globalLoading').classList.remove('hide');
+  try {
+    await loadAllData();
+    document.getElementById('hstatus').textContent = `${CUR_MGR} 님 | ${CUR_REGION} 담당`;
+    renderedTabs.forEach(key => {
+      if (key === 'route') {
+        // mgrMap 인스턴스를 유지한 채 마커/목록만 다시 그림
+        renderRoute();
+      } else if (key === 'accounts') {
+        // acctMapInst 인스턴스를 유지한 채 목록/마커만 다시 그림
+        renderAccountsTable();
+        renderAccountsMap();
+      } else {
+        TAB_RENDERERS[key]();
+      }
+    });
+  } finally {
+    document.getElementById('globalLoading').classList.add('hide');
+    if (btn) { btn.disabled = false; btn.textContent = '새로고침'; }
+  }
 }
 
 function setLoadTxt(t) { const el = document.getElementById('globalLoadTxt'); if (el) el.textContent = t; }
@@ -714,30 +742,49 @@ function renderStaffPage() {
 // 거래처 관리 탭
 // =====================================================
 let acctFilter = 'active';
+let acctPageBuilt = false; // 최초 1회만 DOM 골격을 그림 (지도 DOM 파괴 방지)
+
 function renderAccountsPage() {
   const page = document.getElementById('page-accounts');
-  page.innerHTML = `
-    <div class="filterbar">
-      <button class="chip-btn ${acctFilter==='active'?'on':''}" data-af="active">기존거래처</button>
-      <button class="chip-btn ${acctFilter==='new'?'on':''}" data-af="new">신규거래처</button>
-      <button class="chip-btn ${acctFilter==='dormant'?'on':''}" data-af="dormant">휴면거래처</button>
-    </div>
-    <div class="grid g2">
-      <div class="card">
-        <div class="card-title" id="acct-list-title">목록</div>
-        <div id="acct-table-holder"></div>
+
+  if (!acctPageBuilt) {
+    page.innerHTML = `
+      <div class="filterbar" id="acct-filterbar">
+        <button class="chip-btn" data-af="active">기존거래처</button>
+        <button class="chip-btn" data-af="new">신규거래처</button>
+        <button class="chip-btn" data-af="dormant">휴면거래처</button>
       </div>
-      <div class="card">
-        <div class="card-title">지도</div>
-        <div id="acctMap" style="width:100%;height:480px;border-radius:8px;overflow:hidden"></div>
+      <div class="grid g2">
+        <div class="card">
+          <div class="card-title" id="acct-list-title">목록</div>
+          <div id="acct-table-holder"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">지도</div>
+          <div id="acctMap" style="width:100%;height:480px;border-radius:8px;overflow:hidden"></div>
+        </div>
       </div>
-    </div>
-  `;
-  page.querySelectorAll('[data-af]').forEach(btn => {
-    btn.onclick = () => { acctFilter = btn.dataset.af; renderAccountsPage(); };
-  });
+    `;
+    document.getElementById('acct-filterbar').addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-af]');
+      if (!btn) return;
+      acctFilter = btn.dataset.af;
+      updateAcctFilterButtons();
+      renderAccountsTable();
+      renderAccountsMap();
+    });
+    acctPageBuilt = true;
+  }
+
+  updateAcctFilterButtons();
   renderAccountsTable();
   renderAccountsMap();
+}
+
+function updateAcctFilterButtons() {
+  document.querySelectorAll('#acct-filterbar [data-af]').forEach(btn => {
+    btn.classList.toggle('on', btn.dataset.af === acctFilter);
+  });
 }
 
 function renderAccountsTable() {
@@ -779,6 +826,7 @@ let acctMapInst = null, acctMapMarkers = [];
 function renderAccountsMap() {
   const el = document.getElementById('acctMap');
   if (!el) return;
+  clearIW();
   if (!acctMapInst) {
     acctMapInst = new kakao.maps.Map(el, { center:new kakao.maps.LatLng(COMPANY.lat,COMPANY.lng), level:9 });
   } else {
@@ -817,6 +865,7 @@ function renderAccountsMap() {
 // =====================================================
 function renderTargetsPage() {
   const page = document.getElementById('page-targets');
+  clearIW();
   const existingNames = new Set([...data.active, ...data.new].map(r => normName(r['거래처명'])));
   const targets = data.origin.filter(r => {
     const use = String(r['수입육사용']||'').trim();
@@ -986,6 +1035,7 @@ function renderRoute() {
   rows = rows.filter(r => !isNaN(parseFloat(r['위도'])) && !isNaN(parseFloat(r['경도'])));
   rows.sort((a,b) => (parseInt(a['No'])||0) - (parseInt(b['No'])||0));
 
+  clearIW();
   mgrMarkers.forEach(m => m.setMap(null)); mgrMarkers = [];
   mgrPolylines.forEach(p => p.setMap(null)); mgrPolylines = [];
 
