@@ -1,0 +1,1067 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>AZ 팀장 대시보드</title>
+<script src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=ec7bc6e64af739bb295e74161a8a069d&libraries=services"></script>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+:root {
+  --bg:#0f1117; --surface:#1a1d27; --surface2:#222536; --surface3:#2a2e42;
+  --border:#2e3247; --text:#e8eaf0; --muted:#7b82a0;
+  --red:#e84444; --green:#27ae60; --orange:#e67e22;
+  --blue:#3b82f6; --accent:#5c6ef8; --gold:#f5a623;
+}
+body {
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  background:var(--bg); color:var(--text);
+  height:100vh; height:100dvh; display:flex; flex-direction:column; overflow:hidden;
+}
+::-webkit-scrollbar { width:5px; height:5px; }
+::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
+
+/* ── 로그인 오버레이 ── */
+#auth-overlay {
+  position:fixed; inset:0; background:radial-gradient(circle at 30% 20%, #171a26 0%, #0f1117 60%);
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  z-index:9999; gap:12px;
+}
+.auth-logo { font-size:26px; font-weight:800; letter-spacing:-.5px; color:var(--text); margin-bottom:2px; }
+.auth-logo span { color:var(--accent); }
+.auth-sub { font-size:12px; color:var(--muted); margin-bottom:14px; }
+#auth-overlay select, #auth-overlay input {
+  width:240px; padding:11px 16px; background:var(--surface); border:1px solid var(--border);
+  border-radius:9px; color:var(--text); font-size:14px; outline:none; text-align:center;
+}
+#auth-overlay select:focus, #auth-overlay input:focus { border-color:var(--accent); }
+#auth-overlay button {
+  width:240px; padding:11px; background:var(--accent); border:none; border-radius:9px;
+  color:#fff; font-size:14px; font-weight:700; cursor:pointer; transition:opacity .15s;
+}
+#auth-overlay button:hover { opacity:.85; }
+#pw-error { color:var(--red); font-size:12px; display:none; }
+
+/* ── 헤더 ── */
+header {
+  height:52px; background:var(--surface); border-bottom:1px solid var(--border);
+  display:flex; align-items:center; padding:0 16px; gap:14px; flex-shrink:0;
+}
+.logo { font-size:15px; font-weight:800; letter-spacing:-.3px; flex-shrink:0; }
+.logo span { color:var(--accent); }
+.hdiv { width:1px; height:20px; background:var(--border); flex-shrink:0; }
+nav.toptabs { display:flex; gap:2px; overflow-x:auto; flex:1; }
+nav.toptabs::-webkit-scrollbar { display:none; }
+.ttab {
+  padding:8px 14px; background:none; border:none; border-radius:7px; color:var(--muted);
+  font-size:13px; font-weight:600; cursor:pointer; white-space:nowrap; transition:all .15s;
+}
+.ttab:hover { background:var(--surface2); color:var(--text); }
+.ttab.on { background:var(--surface2); color:var(--text); }
+.ttab.on::after { content:''; }
+.hright { display:flex; align-items:center; gap:10px; flex-shrink:0; font-size:12px; color:var(--muted); }
+.region-tag {
+  padding:4px 10px; background:var(--surface3); border-radius:20px; color:var(--text); font-weight:600; font-size:11.5px;
+}
+.logout-btn { background:none; border:1px solid var(--border); color:var(--muted); border-radius:6px; padding:5px 10px; font-size:11px; cursor:pointer; }
+.logout-btn:hover { border-color:var(--red); color:var(--red); }
+
+/* ── 메인 레이아웃 ── */
+.main { flex:1; overflow:hidden; position:relative; }
+.page { display:none; height:100%; overflow-y:auto; padding:18px 22px 40px; }
+.page.on { display:block; }
+.page.map-page { padding:0; overflow:hidden; }
+
+/* ── 카드 그리드 공통 ── */
+.grid { display:grid; gap:14px; }
+.g4 { grid-template-columns:repeat(4,1fr); }
+.g3 { grid-template-columns:repeat(3,1fr); }
+.g2 { grid-template-columns:repeat(2,1fr); }
+@media (max-width:1100px) { .g4{grid-template-columns:repeat(2,1fr);} .g3{grid-template-columns:repeat(2,1fr);} }
+@media (max-width:680px) { .g4,.g3,.g2{grid-template-columns:1fr;} }
+
+.card {
+  background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:16px 18px;
+}
+.card-title { font-size:12px; font-weight:700; color:var(--muted); letter-spacing:.4px; text-transform:uppercase; margin-bottom:10px; }
+.stat-num { font-size:28px; font-weight:800; letter-spacing:-.5px; }
+.stat-sub { font-size:11.5px; color:var(--muted); margin-top:4px; }
+.stat-num.blue{color:var(--blue)} .stat-num.green{color:var(--green)} .stat-num.orange{color:var(--orange)} .stat-num.red{color:var(--red)} .stat-num.gold{color:var(--gold)}
+
+.section-title { font-size:16px; font-weight:800; margin:22px 0 12px; letter-spacing:-.3px; }
+.section-title:first-child { margin-top:0; }
+
+/* 필터바 */
+.filterbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:14px; }
+.filterbar select, .filterbar input[type=date] {
+  background:var(--surface2); border:1px solid var(--border); border-radius:7px; padding:7px 10px;
+  color:var(--text); font-size:12.5px; outline:none;
+}
+.chip-btn {
+  padding:6px 13px; background:var(--surface2); border:1px solid var(--border); border-radius:20px;
+  color:var(--muted); font-size:12px; cursor:pointer; transition:all .15s; white-space:nowrap;
+}
+.chip-btn:hover { border-color:var(--accent); color:var(--text); }
+.chip-btn.on { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+
+/* 테이블 */
+table.dt { width:100%; border-collapse:collapse; font-size:12.5px; }
+table.dt th { text-align:left; padding:9px 10px; color:var(--muted); font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.3px; border-bottom:1px solid var(--border); }
+table.dt td { padding:9px 10px; border-bottom:1px solid var(--border); }
+table.dt tr:hover td { background:var(--surface2); }
+table.dt tr:last-child td { border-bottom:none; }
+.badge { display:inline-block; font-size:10px; padding:2px 7px; border-radius:4px; font-weight:700; }
+.b-blue{background:rgba(59,130,246,.15);color:var(--blue)} .b-green{background:rgba(39,174,96,.15);color:var(--green)}
+.b-red{background:rgba(232,68,68,.15);color:var(--red)} .b-orange{background:rgba(230,126,34,.15);color:var(--orange)}
+.b-gray{background:rgba(123,130,160,.15);color:var(--muted)} .b-gold{background:rgba(245,166,35,.15);color:var(--gold)}
+
+.empty-hint { padding:30px 10px; text-align:center; color:var(--muted); font-size:12.5px; }
+.loading-overlay {
+  position:absolute; inset:0; background:rgba(15,17,23,.9); display:flex; flex-direction:column;
+  align-items:center; justify-content:center; z-index:50; gap:10px;
+}
+.loading-overlay.hide { display:none; }
+.spin { width:30px; height:30px; border:3px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .7s linear infinite; }
+@keyframes spin { to{transform:rotate(360deg);} }
+.load-txt { font-size:12px; color:var(--muted); }
+
+/* 바 차트 (순수 CSS) */
+.barrow { display:flex; align-items:center; gap:10px; margin-bottom:9px; }
+.barrow .blabel { width:110px; font-size:12px; color:var(--text); flex-shrink:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.barrow .btrack { flex:1; height:16px; background:var(--surface2); border-radius:4px; overflow:hidden; }
+.barrow .bfill { height:100%; background:linear-gradient(90deg,var(--accent),var(--blue)); border-radius:4px; }
+.barrow .bval { width:64px; text-align:right; font-size:11.5px; color:var(--muted); flex-shrink:0; }
+
+/* 지도 페이지 */
+.map-shell { display:flex; height:100%; }
+.map-side { width:280px; background:var(--surface); border-right:1px solid var(--border); flex-shrink:0; display:flex; flex-direction:column; overflow:hidden; }
+.map-side-sec { padding:12px 14px; border-bottom:1px solid var(--border); }
+.map-side-label { font-size:10px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; margin-bottom:8px; }
+.map-wrap { flex:1; position:relative; }
+#mgrMap { width:100%; height:100%; }
+.route-list { flex:1; overflow-y:auto; padding:6px 0; }
+.route-item { padding:8px 14px; border-bottom:1px solid var(--border); font-size:12px; cursor:pointer; }
+.route-item:hover { background:var(--surface2); }
+.route-item .ri-name { font-weight:600; }
+.route-item .ri-meta { color:var(--muted); font-size:10.5px; margin-top:2px; }
+
+.iw { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:10px 12px; min-width:170px; max-width:230px; box-shadow:0 4px 16px rgba(0,0,0,.5); }
+.iw-name { font-size:13px; font-weight:700; margin-bottom:3px; }
+.iw-addr { font-size:10px; color:var(--muted); margin-bottom:5px; line-height:1.4; }
+.iw-row { display:flex; gap:5px; align-items:center; flex-wrap:wrap; }
+.iw-mgr { font-size:10px; color:var(--muted); }
+
+.legend-row { display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--muted); margin-bottom:6px; }
+.legend-row .dot { width:9px; height:9px; border-radius:50%; flex-shrink:0; }
+
+.load-fail-banner {
+  display:none; background:var(--red); color:#fff; font-size:12px; padding:8px 14px; border-radius:8px; margin-bottom:14px;
+}
+
+/* 반응형: 좁은 화면에서 지도 사이드바 숨김 토글 */
+.map-toggle-btn { display:none; }
+@media (max-width:768px) {
+  .map-side { position:absolute; z-index:20; height:100%; left:-280px; transition:left .2s; }
+  .map-side.open { left:0; box-shadow:0 0 30px rgba(0,0,0,.5); }
+  .map-toggle-btn {
+    display:flex; align-items:center; justify-content:center;
+    position:absolute; top:12px; left:12px; z-index:15;
+    width:38px; height:38px; background:var(--surface); border:1px solid var(--border);
+    border-radius:9px; color:var(--text); font-size:18px; cursor:pointer;
+    box-shadow:0 2px 10px rgba(0,0,0,.4);
+  }
+  header { padding:0 10px; gap:8px; }
+  .logo { font-size:13px; }
+  .page { padding:14px; }
+}
+</style>
+</head>
+<body>
+
+<!-- 로그인 오버레이 -->
+<div id="auth-overlay">
+  <div class="auth-logo">AZ <span>팀장 대시보드</span></div>
+  <div class="auth-sub">(주)에이젯시스템</div>
+  <select id="mgr-select">
+    <option value="">팀장 선택</option>
+  </select>
+  <input id="mgr-pw" type="password" placeholder="비밀번호 입력" onkeydown="if(event.key==='Enter') checkMgrLogin()">
+  <button onclick="checkMgrLogin()">로그인</button>
+  <div id="pw-error">비밀번호가 틀렸습니다.</div>
+</div>
+
+<!-- 헤더 -->
+<header>
+  <div class="logo">AZ <span>팀장 대시보드</span></div>
+  <div class="hdiv"></div>
+  <nav class="toptabs" id="toptabs">
+    <button class="ttab on" data-page="overview">개요</button>
+    <button class="ttab" data-page="route">동선 지도</button>
+    <button class="ttab" data-page="staff">사원별 현황</button>
+    <button class="ttab" data-page="accounts">거래처 관리</button>
+    <button class="ttab" data-page="targets">신규 타겟</button>
+    <button class="ttab" data-page="items">품목 현황</button>
+  </nav>
+  <div class="hright">
+    <span class="region-tag" id="region-tag">-</span>
+    <span id="hstatus">로딩 중...</span>
+    <button class="logout-btn" onclick="mgrLogout()">로그아웃</button>
+  </div>
+</header>
+
+<div class="main" id="mainArea">
+  <div class="loading-overlay" id="globalLoading">
+    <div class="spin"></div>
+    <div class="load-txt" id="globalLoadTxt">데이터 불러오는 중...</div>
+  </div>
+
+  <!-- 개요 -->
+  <div class="page on" id="page-overview"></div>
+
+  <!-- 동선 지도 -->
+  <div class="page map-page" id="page-route"></div>
+
+  <!-- 사원별 현황 -->
+  <div class="page" id="page-staff"></div>
+
+  <!-- 거래처 관리 -->
+  <div class="page" id="page-accounts"></div>
+
+  <!-- 신규 타겟 -->
+  <div class="page" id="page-targets"></div>
+
+  <!-- 품목 현황 -->
+  <div class="page" id="page-items"></div>
+</div>
+
+<script>
+// =====================================================
+// 설정
+// =====================================================
+const SS_ID = '1mIXExxFRuZmcy7VKEe_w63Yu1QOqT5r8qondm4k91-c';
+const WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbxT4UAHFE0UVxNPkQlyBPSezMp_pw3dU6oqB-ivXO4uAYapR7wBQNeKED-XEIMVdNhL-w/exec';
+const GID = {
+  active: '0',
+  new: '2043143991',
+  dormant: '1615833992',
+  plan: '1621770753',
+  top5: '299724501',
+  origin: '399280512'
+};
+const COMPANY = { lat:35.2162723, lng:126.8245735, name:'(주)에이젯시스템' };
+const COLORS = { active:'#3b82f6', new:'#27ae60', dormant:'#888888', target:'#f5a623', route:'#5c6ef8' };
+
+// 팀장 계정 / 지역별 사원 배정 — 추후 확정 시 FIXME 값만 교체
+const MANAGERS = {
+  '관리자':     { pw:'FIXME', region:'관리자' },
+  '광주팀장':    { pw:'FIXME', region:'광주' },
+  '전남동부팀장': { pw:'FIXME', region:'전남동부' },
+  '전남서부팀장': { pw:'FIXME', region:'전남서부' },
+  '전북팀장':    { pw:'FIXME', region:'전북' }
+};
+const REGION_STAFF = {
+  '관리자':    ['백윤주','신상명'],
+  '광주':     ['FIXME'],
+  '전남동부':  ['FIXME'],
+  '전남서부':  ['FIXME'],
+  '전북':     ['FIXME']
+};
+
+// =====================================================
+// 상태
+// =====================================================
+let CUR_MGR = null;      // 로그인한 팀장 ID
+let CUR_REGION = null;   // 담당 지역
+let CUR_STAFF = [];      // 담당 지역 소속 사원 목록 (필터링 기준)
+
+let data = { active:[], new:[], dormant:[], plan:[], top5raw:[], origin:[] };
+let loadFailed = { active:false, new:false, dormant:false, plan:false, top5:false, origin:false };
+let prospects = [];
+
+let mgrMap = null;        // 동선 지도 kakao.maps.Map 인스턴스
+let mgrMarkers = [];
+let mgrPolylines = [];
+let curIW = null;
+
+// =====================================================
+// 로그인
+// =====================================================
+(function initMgrSelect() {
+  const sel = document.getElementById('mgr-select');
+  Object.keys(MANAGERS).forEach(name => {
+    const opt = document.createElement('option');
+    opt.value = name; opt.textContent = name;
+    sel.appendChild(opt);
+  });
+})();
+
+function checkMgrLogin() {
+  const id = document.getElementById('mgr-select').value;
+  const pw = document.getElementById('mgr-pw').value;
+  const err = document.getElementById('pw-error');
+
+  if (!id) { err.style.display='block'; err.textContent='팀장을 선택해주세요.'; return; }
+  const mgr = MANAGERS[id];
+  if (!mgr || mgr.pw !== pw) { err.style.display='block'; err.textContent='비밀번호가 틀렸습니다.'; document.getElementById('mgr-pw').value=''; return; }
+
+  err.style.display = 'none';
+  document.getElementById('auth-overlay').style.display = 'none';
+  localStorage.setItem('az_mgr_auth', '1');
+  localStorage.setItem('az_mgr_id', id);
+  CUR_MGR = id;
+  CUR_REGION = mgr.region;
+  CUR_STAFF = REGION_STAFF[CUR_REGION] || [];
+  document.getElementById('region-tag').textContent = CUR_REGION;
+  document.getElementById('hstatus').textContent = `${id} 님 | 데이터 로딩 중...`;
+  bootAfterLogin();
+}
+
+function mgrLogout() {
+  if (!confirm('로그아웃 하시겠습니까?')) return;
+  localStorage.removeItem('az_mgr_auth');
+  localStorage.removeItem('az_mgr_id');
+  location.reload();
+}
+
+function trySessionRestore() {
+  if (localStorage.getItem('az_mgr_auth') === '1') {
+    const id = localStorage.getItem('az_mgr_id');
+    const mgr = MANAGERS[id];
+    if (mgr) {
+      document.getElementById('auth-overlay').style.display = 'none';
+      CUR_MGR = id;
+      CUR_REGION = mgr.region;
+      CUR_STAFF = REGION_STAFF[CUR_REGION] || [];
+      document.getElementById('region-tag').textContent = CUR_REGION;
+      bootAfterLogin();
+      return;
+    }
+  }
+}
+
+// 담당 사원 필터: FIXME 미배정 상태면 전체 데이터 통과(필터 없음) — 배정 완료 후 자동으로 좁혀짐
+function isStaffInScope(name) {
+  if (!name) return false;
+  if (!CUR_STAFF.length || CUR_STAFF.includes('FIXME')) return true;
+  return CUR_STAFF.includes(String(name).trim());
+}
+
+// =====================================================
+// CSV 유틸 (az_sales_map.html 재사용)
+// =====================================================
+async function fetchCsvWithRetry(url, maxRetry = 3) {
+  let lastErr;
+  for (let attempt = 1; attempt <= maxRetry; attempt++) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const txt = await res.text();
+      if (!txt || !txt.trim()) throw new Error('empty response');
+      const head = txt.trim().toLowerCase();
+      if (head.startsWith('<!doctype') || head.startsWith('<html')) {
+        throw new Error('시트 접근 권한 오류로 추정됨 (HTML 응답 수신) — 공유 설정 확인 필요');
+      }
+      return txt;
+    } catch (e) {
+      lastErr = e;
+      if (attempt < maxRetry) await new Promise(r => setTimeout(r, attempt * 800));
+    }
+  }
+  throw lastErr;
+}
+
+function parseCSVRaw(txt) {
+  const rows = [];
+  let row = [], cur = '', inQ = false;
+  const s = txt.replace(/\r\n/g,'\n').replace(/\r/g,'\n');
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (inQ) {
+      if (ch === '"') { if (s[i+1] === '"') { cur += '"'; i++; } else inQ = false; }
+      else cur += ch;
+    } else {
+      if (ch === '"') inQ = true;
+      else if (ch === ',') { row.push(cur); cur=''; }
+      else if (ch === '\n') { row.push(cur); cur=''; rows.push(row); row=[]; }
+      else cur += ch;
+    }
+  }
+  if (cur || row.length) { row.push(cur); rows.push(row); }
+  return rows;
+}
+
+// requiredKey: 유효 데이터 판단 기준 컬럼명 (시트별로 다름)
+function parseCSV(txt, requiredKey) {
+  const rows = parseCSVRaw(txt);
+  if (rows.length < 2) return [];
+  const hdrs = rows[0].map(h => h.trim());
+  return rows.slice(1)
+    .filter(r => r.some(v => v.trim()))
+    .map(vals => {
+      const obj = {};
+      hdrs.forEach((h,i) => { obj[h] = (vals[i]||'').trim(); });
+      return obj;
+    })
+    .filter(r => requiredKey ? r[requiredKey] : true);
+}
+
+function csvUrl(gid) {
+  return `https://docs.google.com/spreadsheets/d/${SS_ID}/export?format=csv&gid=${gid}`;
+}
+
+function normName(s) { return String(s||'').trim().replace(/\s+/g,''); }
+function escHtml(s) { return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// =====================================================
+// 데이터 로드
+// =====================================================
+// 각 탭의 렌더 함수를 매핑 (탭 최초 진입 시 / 데이터 로딩 완료 시 호출)
+const TAB_RENDERERS = {
+  overview: renderOverview,
+  route: initRoutePage,
+  staff: renderStaffPage,
+  accounts: renderAccountsPage,
+  targets: renderTargetsPage,
+  items: renderItemsPage
+};
+let renderedTabs = new Set(); // 이미 초기 렌더된 탭 추적 (지도 탭 중복 생성 방지용)
+
+async function bootAfterLogin() {
+  await loadAllData();
+  document.getElementById('globalLoading').classList.add('hide');
+  document.getElementById('hstatus').textContent = `${CUR_MGR} 님 | ${CUR_REGION} 담당`;
+
+  // 로딩 중 사용자가 다른 탭을 클릭해 놓았을 수 있으므로,
+  // 현재 화면에 떠 있는 탭을 확인해서 그 탭을 확실히 렌더링한다.
+  const activeBtn = document.querySelector('.ttab.on');
+  const activeKey = activeBtn ? activeBtn.dataset.page : 'overview';
+  renderTab(activeKey);
+}
+
+function renderTab(key) {
+  const fn = TAB_RENDERERS[key];
+  if (!fn) return;
+  fn();
+  renderedTabs.add(key);
+}
+
+function setLoadTxt(t) { const el = document.getElementById('globalLoadTxt'); if (el) el.textContent = t; }
+
+async function loadAllData() {
+  const sheetJobs = [
+    ['active','기존거래처','거래처명'],
+    ['new','신규거래처','거래처명'],
+    ['dormant','휴면거래처','거래처명'],
+    ['plan','영업계획','사원명'],
+    ['top5','거래처별주요품목','거래처명'],
+    ['origin','원산지검토','업체명']
+  ];
+  for (const [key,label,reqKey] of sheetJobs) {
+    setLoadTxt(`${label} 로딩 중...`);
+    try {
+      const txt = await fetchCsvWithRetry(csvUrl(GID[key]));
+      const parsed = parseCSV(txt, reqKey);
+      data[key === 'top5' ? 'top5raw' : key] = parsed;
+      loadFailed[key] = false;
+    } catch(e) {
+      console.error(key, e);
+      loadFailed[key] = true;
+      if (key === 'plan') {
+        // 영업계획: 실사용 전이라 데이터 없을 수 있음 — 실패로 취급하지 않고 조용히 빈 배열
+        loadFailed.plan = false;
+        data.plan = [];
+      }
+    }
+  }
+
+  setLoadTxt('신규영업처 로딩 중...');
+  try {
+    const res = await fetch(WEBAPP_URL + '?action=getProspects');
+    const json = await res.json();
+    prospects = (json.success && json.data) ? json.data : [];
+  } catch(e) {
+    console.error('prospects', e);
+    prospects = [];
+  }
+
+  showLoadFailBanner();
+}
+
+function showLoadFailBanner() {
+  const labels = { active:'기존거래처', new:'신규거래처', dormant:'휴면거래처', top5:'주요품목', origin:'원산지검토' };
+  const failed = Object.keys(loadFailed).filter(k => loadFailed[k] && labels[k]);
+  // 배너는 개요 페이지 상단에 삽입 (렌더 시 처리)
+  window._loadFailedNames = failed.map(k => labels[k]);
+}
+
+// =====================================================
+// 지역 필터 헬퍼 (담당자 기준)
+// =====================================================
+function filterByScope(rows) {
+  return rows.filter(r => isStaffInScope(r['담당자'] || r['사원명'] || r['등록자']));
+}
+
+// =====================================================
+// 개요 탭
+// =====================================================
+function renderOverview() {
+  const page = document.getElementById('page-overview');
+  const active = filterByScope(data.active);
+  const newC = filterByScope(data.new);
+  const dormant = filterByScope(data.dormant);
+  const planToday = filterByScope(data.plan);
+
+  const planTotal = planToday.length;
+  const planDone = planToday.filter(r => String(r['방문완료']).trim() === 'TRUE' || String(r['방문완료']).trim() === 'true').length;
+  const visitRate = planTotal ? Math.round(planDone/planTotal*100) : null;
+
+  // 휴면 위험: 기존거래처 중 마지막거래일 3개월 이상 경과
+  const now = Date.now();
+  const dormantRisk = active.map(r => {
+    const d = parseDateLoose(r['마지막거래일']);
+    const days = daysSince(d);
+    return { ...r, _days: days };
+  }).filter(r => r._days !== null && r._days >= 90)
+    .sort((a,b) => b._days - a._days);
+
+  // 미개척 타겟: 원산지검토 중 수입육사용 O 또는 빈칸 + 기존/신규거래처에 없는 업체
+  const existingNames = new Set([...data.active, ...data.new].map(r => normName(r['거래처명'])));
+  const targets = data.origin.filter(r => {
+    const use = String(r['수입육사용']||'').trim();
+    return (use === 'O' || use === '') && !existingNames.has(normName(r['업체명']));
+  });
+
+  // 품목 TOP3 (KG 합산)
+  const itemTotals = {};
+  data.top5raw.forEach(r => {
+    for (let i=1;i<=5;i++) {
+      const nm = r[`TOP${i}_품목`], kg = parseFloat(r[`TOP${i}_KG`]);
+      if (!nm || isNaN(kg)) continue;
+      itemTotals[nm] = (itemTotals[nm]||0) + kg;
+    }
+  });
+  const topItems = Object.entries(itemTotals).sort((a,b)=>b[1]-a[1]).slice(0,3);
+
+  const failBanner = (window._loadFailedNames && window._loadFailedNames.length)
+    ? `<div class="load-fail-banner" style="display:block">⚠️ ${window._loadFailedNames.join(', ')} 데이터 로딩에 실패했습니다. 일부 통계가 부정확할 수 있습니다.</div>`
+    : '';
+
+  page.innerHTML = `
+    ${failBanner}
+    <div class="grid g4" style="margin-bottom:6px">
+      <div class="card">
+        <div class="card-title">기존 거래처</div>
+        <div class="stat-num blue">${active.length}</div>
+        <div class="stat-sub">${CUR_REGION} 담당 합계</div>
+      </div>
+      <div class="card">
+        <div class="card-title">신규 거래처</div>
+        <div class="stat-num green">${newC.length}</div>
+        <div class="stat-sub">전환 완료 기준</div>
+      </div>
+      <div class="card">
+        <div class="card-title">휴면 거래처</div>
+        <div class="stat-num orange">${dormant.length}</div>
+        <div class="stat-sub">거래 중단 상태</div>
+      </div>
+      <div class="card">
+        <div class="card-title">오늘 방문완료율</div>
+        <div class="stat-num ${visitRate===null?'':(visitRate>=70?'green':visitRate>=40?'orange':'red')}">${visitRate===null?'-':visitRate+'%'}</div>
+        <div class="stat-sub">${planTotal ? `${planDone} / ${planTotal}건` : '오늘 등록된 영업계획 없음'}</div>
+      </div>
+    </div>
+
+    <div class="section-title">휴면 위험 거래처 (미방문 3개월 이상)</div>
+    <div class="card">
+      ${dormantRisk.length ? `
+        <table class="dt">
+          <thead><tr><th>거래처명</th><th>담당자</th><th>마지막거래일</th><th>경과일</th></tr></thead>
+          <tbody>
+            ${dormantRisk.slice(0,8).map(r => `
+              <tr>
+                <td>${escHtml(r['거래처명'])}</td>
+                <td>${escHtml(r['담당자'])}</td>
+                <td>${escHtml(r['마지막거래일'])}</td>
+                <td><span class="badge ${r._days>=180?'b-red':'b-orange'}">${r._days}일</span></td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+        ${dormantRisk.length > 8 ? `<div class="stat-sub" style="margin-top:8px">외 ${dormantRisk.length-8}건 — '거래처 관리' 탭에서 전체 확인</div>` : ''}
+      ` : `<div class="empty-hint">휴면 위험 거래처가 없습니다.</div>`}
+    </div>
+
+    <div class="grid g2" style="margin-top:22px">
+      <div>
+        <div class="section-title">미개척 신규 타겟</div>
+        <div class="card">
+          <div class="stat-num gold">${targets.length}</div>
+          <div class="stat-sub">수입육 사용 의심 · 미거래 업체 (원산지검토 기준)</div>
+        </div>
+      </div>
+      <div>
+        <div class="section-title">주력 품목 TOP3</div>
+        <div class="card">
+          ${topItems.length ? topItems.map(([nm,kg],i) => {
+            const max = topItems[0][1];
+            return `<div class="barrow">
+              <div class="blabel">${i+1}. ${escHtml(nm)}</div>
+              <div class="btrack"><div class="bfill" style="width:${Math.max(6,kg/max*100)}%"></div></div>
+              <div class="bval">${kg.toLocaleString()}kg</div>
+            </div>`;
+          }).join('') : `<div class="empty-hint">품목 데이터 없음</div>`}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function parseDateLoose(s) {
+  if (!s) return null;
+  const t = String(s).trim();
+  let m = t.match(/^(\d{4})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/);
+  if (m) return new Date(+m[1], +m[2]-1, +m[3]);
+  m = t.match(/^(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일/);
+  if (m) return new Date(+m[1], +m[2]-1, +m[3]);
+  const d = new Date(t);
+  return isNaN(d.getTime()) ? null : d;
+}
+function daysSince(dateObj) {
+  if (!dateObj) return null;
+  return Math.floor((Date.now() - dateObj.getTime()) / 86400000);
+}
+
+// =====================================================
+// 사원별 현황 탭
+// =====================================================
+function renderStaffPage() {
+  const page = document.getElementById('page-staff');
+  const active = filterByScope(data.active);
+  const newC = filterByScope(data.new);
+  const dormant = filterByScope(data.dormant);
+  const plan = filterByScope(data.plan);
+  const myProspects = prospects.filter(p => isStaffInScope(p['등록자']));
+
+  const staffSet = new Set();
+  [...active,...newC,...dormant,...plan].forEach(r => { const n = r['담당자']||r['사원명']; if (n) staffSet.add(n); });
+  myProspects.forEach(p => { if (p['등록자']) staffSet.add(p['등록자']); });
+  const staffList = [...staffSet].sort();
+
+  function countBy(rows, key) {
+    const m = {}; rows.forEach(r => { const n = r[key]; if (n) m[n] = (m[n]||0)+1; }); return m;
+  }
+  const activeCnt = countBy(active, '담당자');
+  const newCnt = countBy(newC, '담당자');
+  const dormantCnt = countBy(dormant, '담당자');
+  const prospectCnt = countBy(myProspects, '등록자');
+
+  function planStats(name) {
+    const rows = plan.filter(r => r['사원명'] === name);
+    const done = rows.filter(r => String(r['방문완료']).trim().toLowerCase() === 'true').length;
+    return { total: rows.length, done, rate: rows.length ? Math.round(done/rows.length*100) : null };
+  }
+  function resultDist(name) {
+    const rows = myProspects.filter(p => p['등록자'] === name);
+    const dist = { 성공:0, 보류:0, 실패:0, 관심:0, '':0 };
+    rows.forEach(p => { const r = String(p['결과']||'').trim(); dist[r] = (dist[r]||0)+1; });
+    return dist;
+  }
+
+  page.innerHTML = `
+    <div class="section-title">사원별 거래처 현황</div>
+    <div class="card">
+      ${staffList.length ? `
+        <table class="dt">
+          <thead><tr><th>사원명</th><th>기존</th><th>신규</th><th>휴면</th><th>신규영업처 등록</th><th>오늘 방문완료율</th></tr></thead>
+          <tbody>
+            ${staffList.map(name => {
+              const ps = planStats(name);
+              return `<tr>
+                <td style="font-weight:600">${escHtml(name)}</td>
+                <td>${activeCnt[name]||0}</td>
+                <td><span class="badge b-green">${newCnt[name]||0}</span></td>
+                <td><span class="badge b-gray">${dormantCnt[name]||0}</span></td>
+                <td>${prospectCnt[name]||0}</td>
+                <td>${ps.rate===null?'<span style="color:var(--muted)">계획없음</span>':`<span class="badge ${ps.rate>=70?'b-green':ps.rate>=40?'b-orange':'b-red'}">${ps.rate}% (${ps.done}/${ps.total})</span>`}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      ` : `<div class="empty-hint">담당 사원 데이터가 없습니다.</div>`}
+    </div>
+
+    <div class="section-title">신규영업처 결과 분포</div>
+    <div class="card">
+      ${staffList.length ? staffList.map(name => {
+        const dist = resultDist(name);
+        const total = Object.values(dist).reduce((a,b)=>a+b,0);
+        if (!total) return '';
+        return `<div style="margin-bottom:14px">
+          <div style="font-size:12.5px;font-weight:600;margin-bottom:6px">${escHtml(name)} <span style="color:var(--muted);font-weight:400">(${total}건)</span></div>
+          <div style="display:flex;gap:4px;height:10px;border-radius:5px;overflow:hidden">
+            ${dist['성공'] ? `<div style="background:var(--green);width:${dist['성공']/total*100}%" title="성공 ${dist['성공']}"></div>` : ''}
+            ${dist['관심'] ? `<div style="background:var(--blue);width:${dist['관심']/total*100}%" title="관심 ${dist['관심']}"></div>` : ''}
+            ${dist['보류'] ? `<div style="background:var(--orange);width:${dist['보류']/total*100}%" title="보류 ${dist['보류']}"></div>` : ''}
+            ${dist['실패'] ? `<div style="background:var(--red);width:${dist['실패']/total*100}%" title="실패 ${dist['실패']}"></div>` : ''}
+            ${dist[''] ? `<div style="background:var(--muted);width:${dist['']/total*100}%" title="미정 ${dist['']}"></div>` : ''}
+          </div>
+        </div>`;
+      }).join('') : `<div class="empty-hint">데이터 없음</div>`}
+    </div>
+  `;
+}
+
+// =====================================================
+// 거래처 관리 탭
+// =====================================================
+let acctFilter = 'active';
+function renderAccountsPage() {
+  const page = document.getElementById('page-accounts');
+  page.innerHTML = `
+    <div class="filterbar">
+      <button class="chip-btn ${acctFilter==='active'?'on':''}" data-af="active">기존거래처</button>
+      <button class="chip-btn ${acctFilter==='new'?'on':''}" data-af="new">신규거래처</button>
+      <button class="chip-btn ${acctFilter==='dormant'?'on':''}" data-af="dormant">휴면거래처</button>
+    </div>
+    <div class="grid g2">
+      <div class="card">
+        <div class="card-title" id="acct-list-title">목록</div>
+        <div id="acct-table-holder"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">지도</div>
+        <div id="acctMap" style="width:100%;height:480px;border-radius:8px;overflow:hidden"></div>
+      </div>
+    </div>
+  `;
+  page.querySelectorAll('[data-af]').forEach(btn => {
+    btn.onclick = () => { acctFilter = btn.dataset.af; renderAccountsPage(); };
+  });
+  renderAccountsTable();
+  renderAccountsMap();
+}
+
+function renderAccountsTable() {
+  const labels = { active:'기존거래처', new:'신규거래처', dormant:'휴면거래처' };
+  document.getElementById('acct-list-title').textContent = labels[acctFilter] + ' 목록';
+  const rows = filterByScope(data[acctFilter]);
+  const holder = document.getElementById('acct-table-holder');
+  if (!rows.length) { holder.innerHTML = `<div class="empty-hint">데이터가 없습니다.</div>`; return; }
+
+  let sorted = rows;
+  if (acctFilter === 'dormant') {
+    sorted = rows.map(r => ({...r, _days: daysSince(parseDateLoose(r['마지막거래일']))})).sort((a,b)=>(b._days||0)-(a._days||0));
+  }
+
+  holder.innerHTML = `
+    <div style="max-height:480px;overflow-y:auto">
+    <table class="dt">
+      <thead><tr><th>거래처명</th><th>담당자</th><th>마지막거래일</th>${acctFilter==='dormant'?'<th>경과</th>':''}</tr></thead>
+      <tbody>
+        ${sorted.map(r => `<tr>
+          <td>${escHtml(r['거래처명'])}</td>
+          <td>${escHtml(r['담당자'])}</td>
+          <td>${escHtml(r['마지막거래일'])}</td>
+          ${acctFilter==='dormant' ? `<td>${r._days!=null?`<span class="badge ${r._days>=180?'b-red':'b-orange'}">${classifyDormant(r._days)}</span>`:'-'}</td>` : ''}
+        </tr>`).join('')}
+      </tbody>
+    </table>
+    </div>
+  `;
+}
+function classifyDormant(days) {
+  if (days >= 365) return '1년+';
+  if (days >= 180) return '6개월~1년';
+  if (days >= 90) return '3~6개월';
+  return days + '일';
+}
+
+let acctMapInst = null, acctMapMarkers = [];
+function renderAccountsMap() {
+  const el = document.getElementById('acctMap');
+  if (!el) return;
+  if (!acctMapInst) {
+    acctMapInst = new kakao.maps.Map(el, { center:new kakao.maps.LatLng(COMPANY.lat,COMPANY.lng), level:9 });
+  } else {
+    kakao.maps.event.trigger(acctMapInst, 'resize');
+  }
+  acctMapMarkers.forEach(m => m.setMap(null));
+  acctMapMarkers = [];
+  const rows = filterByScope(data[acctFilter]);
+  const color = COLORS[acctFilter];
+  const bounds = new kakao.maps.LatLngBounds();
+  let any = false;
+  rows.forEach(r => {
+    const lat = parseFloat(r['위도']), lng = parseFloat(r['경도']);
+    if (isNaN(lat) || isNaN(lng)) return;
+    any = true;
+    const pos = new kakao.maps.LatLng(lat,lng);
+    bounds.extend(pos);
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14"><circle cx="7" cy="7" r="6" fill="${color}" stroke="white" stroke-width="1.5"/></svg>`;
+    const url = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg)));
+    const marker = new kakao.maps.Marker({ position:pos, map:acctMapInst, image:new kakao.maps.MarkerImage(url,new kakao.maps.Size(14,14)) });
+    kakao.maps.event.addListener(marker, 'click', () => {
+      if (curIW) curIW.setMap(null);
+      curIW = new kakao.maps.CustomOverlay({
+        position:pos, yAnchor:1.4,
+        content:`<div class="iw"><div class="iw-name">${escHtml(r['거래처명'])}</div><div class="iw-addr">${escHtml(r['주소']||'')}</div><div class="iw-mgr">담당: ${escHtml(r['담당자']||'-')}</div></div>`
+      });
+      curIW.setMap(acctMapInst);
+    });
+    acctMapMarkers.push(marker);
+  });
+  if (any) acctMapInst.setBounds(bounds);
+}
+
+// =====================================================
+// 신규 타겟 탭
+// =====================================================
+function renderTargetsPage() {
+  const page = document.getElementById('page-targets');
+  const existingNames = new Set([...data.active, ...data.new].map(r => normName(r['거래처명'])));
+  const targets = data.origin.filter(r => {
+    const use = String(r['수입육사용']||'').trim();
+    return (use === 'O' || use === '') && !existingNames.has(normName(r['업체명']));
+  });
+  const catCnt = {};
+  targets.forEach(t => { const c = t['카테고리']||'기타'; catCnt[c] = (catCnt[c]||0)+1; });
+
+  page.innerHTML = `
+    <div class="grid g4" style="margin-bottom:6px">
+      <div class="card">
+        <div class="card-title">미개척 타겟</div>
+        <div class="stat-num gold">${targets.length}</div>
+        <div class="stat-sub">수입육 사용 의심 · 미거래</div>
+      </div>
+      ${Object.entries(catCnt).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([c,n]) => `
+        <div class="card">
+          <div class="card-title">${escHtml(c)}</div>
+          <div class="stat-num">${n}</div>
+          <div class="stat-sub">타겟 업체 수</div>
+        </div>
+      `).join('')}
+    </div>
+    <div class="grid g2" style="margin-top:22px">
+      <div class="card">
+        <div class="card-title">타겟 목록</div>
+        <div style="max-height:480px;overflow-y:auto">
+          ${targets.length ? `
+          <table class="dt">
+            <thead><tr><th>업체명</th><th>카테고리</th><th>수입육사용</th><th>발견일</th></tr></thead>
+            <tbody>
+              ${targets.map(t => `<tr>
+                <td>${escHtml(t['업체명'])}</td>
+                <td>${escHtml(t['카테고리']||'-')}</td>
+                <td><span class="badge ${t['수입육사용']==='O'?'b-red':'b-gray'}">${escHtml(t['수입육사용']||'미확인')}</span></td>
+                <td>${escHtml(t['발견일']||'-')}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>` : `<div class="empty-hint">미개척 타겟이 없습니다.</div>`}
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">지도</div>
+        <div id="targetMap" style="width:100%;height:480px;border-radius:8px;overflow:hidden"></div>
+      </div>
+    </div>
+  `;
+
+  const el = document.getElementById('targetMap');
+  const tmap = new kakao.maps.Map(el, { center:new kakao.maps.LatLng(COMPANY.lat,COMPANY.lng), level:9 });
+  const bounds = new kakao.maps.LatLngBounds();
+  let any = false;
+  targets.forEach(t => {
+    const lat = parseFloat(t['위도']), lng = parseFloat(t['경도']);
+    if (isNaN(lat) || isNaN(lng)) return;
+    any = true;
+    const pos = new kakao.maps.LatLng(lat,lng);
+    bounds.extend(pos);
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14"><circle cx="7" cy="7" r="6" fill="${COLORS.target}" stroke="white" stroke-width="1.5"/></svg>`;
+    const url = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg)));
+    const marker = new kakao.maps.Marker({ position:pos, map:tmap, image:new kakao.maps.MarkerImage(url,new kakao.maps.Size(14,14)) });
+    kakao.maps.event.addListener(marker, 'click', () => {
+      if (curIW) curIW.setMap(null);
+      curIW = new kakao.maps.CustomOverlay({
+        position:pos, yAnchor:1.4,
+        content:`<div class="iw"><div class="iw-name">${escHtml(t['업체명'])}</div><div class="iw-addr">${escHtml(t['카테고리']||'')}</div></div>`
+      });
+      curIW.setMap(tmap);
+    });
+  });
+  if (any) tmap.setBounds(bounds);
+}
+
+// =====================================================
+// 품목 현황 탭
+// =====================================================
+function renderItemsPage() {
+  const page = document.getElementById('page-items');
+  const itemTotals = {};
+  data.top5raw.forEach(r => {
+    for (let i=1;i<=5;i++) {
+      const nm = r[`TOP${i}_품목`], kg = parseFloat(r[`TOP${i}_KG`]);
+      if (!nm || isNaN(kg)) continue;
+      itemTotals[nm] = (itemTotals[nm]||0) + kg;
+    }
+  });
+  const sortedItems = Object.entries(itemTotals).sort((a,b)=>b[1]-a[1]);
+  const max = sortedItems.length ? sortedItems[0][1] : 1;
+
+  page.innerHTML = `
+    <div class="section-title">품목별 총 취급량 (KG)</div>
+    <div class="card">
+      ${sortedItems.length ? sortedItems.map(([nm,kg]) => `
+        <div class="barrow">
+          <div class="blabel">${escHtml(nm)}</div>
+          <div class="btrack"><div class="bfill" style="width:${Math.max(4,kg/max*100)}%"></div></div>
+          <div class="bval">${kg.toLocaleString()}kg</div>
+        </div>
+      `).join('') : `<div class="empty-hint">품목 데이터가 없습니다.</div>`}
+    </div>
+
+    <div class="section-title">거래처별 상위 품목</div>
+    <div class="card">
+      ${data.top5raw.length ? `
+      <table class="dt">
+        <thead><tr><th>거래처명</th><th>1위</th><th>2위</th><th>3위</th></tr></thead>
+        <tbody>
+          ${data.top5raw.map(r => `<tr>
+            <td>${escHtml(r['거래처명'])}</td>
+            <td>${escHtml(r['TOP1_품목']||'-')} ${r['TOP1_KG']?`<span style="color:var(--muted)">(${r['TOP1_KG']}kg)</span>`:''}</td>
+            <td>${escHtml(r['TOP2_품목']||'-')} ${r['TOP2_KG']?`<span style="color:var(--muted)">(${r['TOP2_KG']}kg)</span>`:''}</td>
+            <td>${escHtml(r['TOP3_품목']||'-')} ${r['TOP3_KG']?`<span style="color:var(--muted)">(${r['TOP3_KG']}kg)</span>`:''}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>` : `<div class="empty-hint">데이터가 없습니다.</div>`}
+    </div>
+  `;
+}
+
+// =====================================================
+// 동선 지도 탭
+// =====================================================
+function initRoutePage() {
+  const page = document.getElementById('page-route');
+  const staffSet = new Set();
+  filterByScope(data.plan).forEach(r => { if (r['사원명']) staffSet.add(r['사원명']); });
+  const staffList = [...staffSet].sort();
+
+  page.innerHTML = `
+    <div class="map-shell">
+      <div class="map-side">
+        <div class="map-side-sec">
+          <div class="map-side-label">사원 선택</div>
+          <select id="route-staff-sel" style="width:100%;padding:7px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:12.5px">
+            <option value="">전체</option>
+            ${staffList.map(s => `<option value="${escHtml(s)}">${escHtml(s)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="map-side-sec">
+          <div class="map-side-label">범례</div>
+          <div class="legend-row"><span class="dot" style="background:${COLORS.route}"></span>동선 순서</div>
+          <div class="legend-row"><span class="dot" style="background:var(--green)"></span>방문완료</div>
+          <div class="legend-row"><span class="dot" style="background:${COLORS.active}"></span>미방문</div>
+        </div>
+        <div class="map-side-label" style="padding:10px 14px 0">방문 목록</div>
+        <div class="route-list" id="route-list"></div>
+      </div>
+      <div class="map-wrap">
+        <button class="map-toggle-btn" onclick="document.querySelector('#page-route .map-side').classList.toggle('open')">☰</button>
+        <div id="mgrMap"></div>
+      </div>
+    </div>
+  `;
+
+  mgrMap = new kakao.maps.Map(document.getElementById('mgrMap'), {
+    center:new kakao.maps.LatLng(COMPANY.lat,COMPANY.lng), level:9
+  });
+
+  document.getElementById('route-staff-sel').onchange = renderRoute;
+  renderRoute();
+}
+
+function renderRoute() {
+  const staffSel = document.getElementById('route-staff-sel').value;
+  let rows = filterByScope(data.plan);
+  if (staffSel) rows = rows.filter(r => r['사원명'] === staffSel);
+  rows = rows.filter(r => !isNaN(parseFloat(r['위도'])) && !isNaN(parseFloat(r['경도'])));
+  rows.sort((a,b) => (parseInt(a['No'])||0) - (parseInt(b['No'])||0));
+
+  mgrMarkers.forEach(m => m.setMap(null)); mgrMarkers = [];
+  mgrPolylines.forEach(p => p.setMap(null)); mgrPolylines = [];
+
+  const list = document.getElementById('route-list');
+  if (!rows.length) {
+    list.innerHTML = `<div class="empty-hint">오늘 등록된 영업계획이 없습니다.<br>(영업계획 시트는 실사용 전으로, 아직 데이터가 없을 수 있습니다.)</div>`;
+    return;
+  }
+
+  const path = [];
+  const bounds = new kakao.maps.LatLngBounds();
+  list.innerHTML = rows.map((r,i) => {
+    const lat = parseFloat(r['위도']), lng = parseFloat(r['경도']);
+    const pos = new kakao.maps.LatLng(lat,lng);
+    path.push(pos);
+    bounds.extend(pos);
+    const visited = String(r['방문완료']).trim().toLowerCase() === 'true';
+    const color = visited ? '#27ae60' : COLORS.active;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22"><circle cx="11" cy="11" r="10" fill="${color}" stroke="white" stroke-width="2"/><text x="11" y="15" font-size="10" fill="white" text-anchor="middle" font-family="sans-serif">${i+1}</text></svg>`;
+    const url = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg)));
+    const marker = new kakao.maps.Marker({ position:pos, map:mgrMap, image:new kakao.maps.MarkerImage(url,new kakao.maps.Size(22,22)) });
+    kakao.maps.event.addListener(marker, 'click', () => {
+      mgrMap.panTo(pos);
+      if (curIW) curIW.setMap(null);
+      curIW = new kakao.maps.CustomOverlay({
+        position:pos, yAnchor:1.6,
+        content:`<div class="iw"><div class="iw-name">${escHtml(r['거래처명'])}</div><div class="iw-addr">${escHtml(r['주소']||'')}</div><div class="iw-mgr">${visited?'방문완료':'미방문'} · ${escHtml(r['사원명'])}</div></div>`
+      });
+      curIW.setMap(mgrMap);
+    });
+    mgrMarkers.push(marker);
+    return `<div class="route-item" data-idx="${i}">
+      <div class="ri-name">${i+1}. ${escHtml(r['거래처명'])} ${visited?'<span class="badge b-green">완료</span>':''}</div>
+      <div class="ri-meta">${escHtml(r['사원명'])} · ${escHtml(r['날짜']||'')}</div>
+    </div>`;
+  }).join('');
+
+  const polyline = new kakao.maps.Polyline({ path, strokeWeight:3, strokeColor:COLORS.route, strokeOpacity:.8, strokeStyle:'solid' });
+  polyline.setMap(mgrMap);
+  mgrPolylines.push(polyline);
+  mgrMap.setBounds(bounds);
+
+  list.querySelectorAll('.route-item').forEach(el => {
+    el.onclick = () => {
+      const idx = +el.dataset.idx;
+      mgrMap.panTo(path[idx]);
+    };
+  });
+}
+
+// =====================================================
+// 탭 전환
+// =====================================================
+document.getElementById('toptabs').addEventListener('click', (e) => {
+  const btn = e.target.closest('.ttab');
+  if (!btn) return;
+  document.querySelectorAll('.ttab').forEach(t => t.classList.remove('on'));
+  btn.classList.add('on');
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('on'));
+  document.getElementById('page-' + btn.dataset.page).classList.add('on');
+
+  const key = btn.dataset.page;
+  if (!renderedTabs.has(key)) {
+    // 최초 진입: 데이터가 이미 로드된 상태라면 여기서 렌더 (지도 컨테이너가 보이는 상태에서 생성됨)
+    if (CUR_MGR) renderTab(key);
+  } else {
+    // 재방문: 지도가 있는 탭은 resize만 트리거 (컨테이너 크기가 display:none 동안 0으로 잡혔을 수 있음)
+    if (key === 'route' && mgrMap) kakao.maps.event.trigger(mgrMap, 'resize');
+    if (key === 'accounts' && acctMapInst) kakao.maps.event.trigger(acctMapInst, 'resize');
+  }
+});
+
+// =====================================================
+// 초기화
+// =====================================================
+window.addEventListener('load', trySessionRestore);
+</script>
+</body>
+</html>
