@@ -648,6 +648,53 @@ function addrInRegionScope(addr) {
   return sidos.includes(extractSido(addr));
 }
 
+// 주소에서 시군구 추출 (예: "전북특별자치도 전주시 완산구 ..." → "전주시", "광주광역시 북구 ..." → "북구")
+function extractSigungu(addr) {
+  if (!addr) return '';
+  const s = String(addr).trim();
+  // 시/도 다음의 첫 '시' 또는 '군' 또는 '구' 단위 토큰
+  const m = s.match(/(?:광주광역시|전라남도|전라북도|전북특별자치도|전남|전북)\s+(\S+?(?:시|군|구))/);
+  if (m) return m[1];
+  // 시/도 표기가 생략된 경우 첫 토큰에서 추출 시도
+  const m2 = s.match(/(\S+?(?:시|군|구))/);
+  return m2 ? m2[1] : '';
+}
+
+// 개요 필터: 현재 팀장이 볼 수 있는 지역(시/도) 목록. 관리자는 광주/전남/전북 전체.
+function ovRegionOptions() {
+  if (CUR_REGION === '관리자' || !CUR_REGION) return ['광주','전남','전북'];
+  const sidos = regionSidos();
+  return sidos || ['광주','전남','전북'];
+}
+
+// 개요 필터: 특정 시/도에 속한 거래처들의 시군구 목록 (데이터 기반, 실제 존재하는 것만)
+function ovSigunguOptions(sido) {
+  const set = new Set();
+  [...data.active, ...data.new, ...data.dormant].forEach(r => {
+    if (extractSido(r['주소']) === sido) {
+      const g = extractSigungu(r['주소']);
+      if (g) set.add(g);
+    }
+  });
+  return [...set].sort();
+}
+
+// 개요 필터: 현재 팀장 지역 소속 사원만. 관리자는 전체 담당자.
+function ovStaffOptions() {
+  if (CUR_REGION === '관리자' || !CUR_REGION) {
+    const set = new Set();
+    [...data.active, ...data.new, ...data.dormant].forEach(r => { if (r['담당자']) set.add(r['담당자']); });
+    return [...set].sort();
+  }
+  // 팀장: REGION_STAFF 배정 사원 중 실제 데이터에 등장하는 사람만
+  const assigned = new Set(CUR_STAFF);
+  const set = new Set();
+  [...data.active, ...data.new, ...data.dormant].forEach(r => {
+    if (r['담당자'] && assigned.has(r['담당자'])) set.add(r['담당자']);
+  });
+  return [...set].sort();
+}
+
 function escHtml(s) { return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 // 신규영업처 "방문 완료" 판단 — az_sales_map.html에서 두 경로로 각각 기록됨을 감안해 합산
@@ -721,6 +768,7 @@ async function refreshData() {
         renderRoute();
       } else if (key === 'accounts') {
         // acctMapInst 인스턴스를 유지한 채 목록/마커만 다시 그림
+        fillAcctStaffOptions();
         renderAccountsTable();
         renderAccountsMap();
       } else {
@@ -854,6 +902,7 @@ function renderOverview() {
           <option value="staff">사원별</option>
         </select>
         <select id="ov-dr-filter-value" style="background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:7px 10px;color:var(--text);font-size:12.5px;display:none"></select>
+        <select id="ov-dr-filter-sub" style="background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:7px 10px;color:var(--text);font-size:12.5px;display:none"></select>
       </div>
       <div id="ov-dormant-risk-holder"></div>
     </div>
@@ -867,51 +916,94 @@ function renderOverview() {
           <option value="staff">사원별</option>
         </select>
         <select id="ov-item-filter-value" style="background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:7px 10px;color:var(--text);font-size:12.5px;display:none"></select>
+        <select id="ov-item-filter-sub" style="background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:7px 10px;color:var(--text);font-size:12.5px;display:none"></select>
       </div>
       <div id="ov-item-top3"></div>
     </div>
   `;
 
   document.getElementById('ov-dr-filter-type').addEventListener('change', onOvDrFilterTypeChange);
-  document.getElementById('ov-dr-filter-value').addEventListener('change', renderOvDormantRisk);
+  document.getElementById('ov-dr-filter-value').addEventListener('change', onOvDrFilterValueChange);
+  document.getElementById('ov-dr-filter-sub').addEventListener('change', renderOvDormantRisk);
   renderOvDormantRisk();
 
   document.getElementById('ov-item-filter-type').addEventListener('change', onOvItemFilterTypeChange);
-  document.getElementById('ov-item-filter-value').addEventListener('change', renderOvItemTop3);
+  document.getElementById('ov-item-filter-value').addEventListener('change', onOvItemFilterValueChange);
+  document.getElementById('ov-item-filter-sub').addEventListener('change', renderOvItemTop3);
   renderOvItemTop3();
 }
 
-function fillOvFilterValueOptions(selectEl, type) {
+// 개요 필터 공용: 타입(전체/지역별/사원별) 변경 시 값 드롭다운 채우기
+function fillOvTypeValue(valSel, subSel, type) {
+  subSel.style.display = 'none';
+  subSel.innerHTML = '';
   if (type === 'all') {
-    selectEl.style.display = 'none';
-    selectEl.innerHTML = '';
+    valSel.style.display = 'none';
+    valSel.innerHTML = '';
   } else if (type === 'region') {
-    selectEl.style.display = '';
-    selectEl.innerHTML = ['광주','전남','전북'].map(r => `<option value="${r}">${r}</option>`).join('');
+    valSel.style.display = '';
+    valSel.innerHTML = ovRegionOptions().map(r => `<option value="${r}">${r}</option>`).join('');
   } else if (type === 'staff') {
-    selectEl.style.display = '';
-    const staffSet = new Set();
-    [...data.active, ...data.new, ...data.dormant].forEach(r => { if (r['담당자']) staffSet.add(r['담당자']); });
-    selectEl.innerHTML = [...staffSet].sort().map(s => `<option value="${escHtml(s)}">${escHtml(s)}</option>`).join('');
+    valSel.style.display = '';
+    valSel.innerHTML = ovStaffOptions().map(s => `<option value="${escHtml(s)}">${escHtml(s)}</option>`).join('');
   }
 }
 
+// 개요 필터 공용: 지역별일 때 값(시/도) 변경 시 세부지역(시군구) 드롭다운 채우기
+function fillOvSubOptions(typeSel, valSel, subSel) {
+  if (typeSel.value !== 'region') {
+    subSel.style.display = 'none';
+    subSel.innerHTML = '';
+    return;
+  }
+  const gus = ovSigunguOptions(valSel.value);
+  if (!gus.length) {
+    subSel.style.display = 'none';
+    subSel.innerHTML = '';
+    return;
+  }
+  subSel.style.display = '';
+  subSel.innerHTML = '<option value="">전체 시군구</option>' + gus.map(g => `<option value="${escHtml(g)}">${escHtml(g)}</option>`).join('');
+}
+
+// 개요 필터 공용: 현재 필터 조건으로 행 필터링 (type/val/sub 3단)
+function applyOvFilter(rows, type, val, sub) {
+  if (type === 'region') {
+    rows = rows.filter(r => extractSido(r['주소']) === val);
+    if (sub) rows = rows.filter(r => extractSigungu(r['주소']) === sub);
+  } else if (type === 'staff') {
+    rows = rows.filter(r => r['담당자'] === val);
+  }
+  return rows;
+}
+
 function onOvDrFilterTypeChange() {
-  fillOvFilterValueOptions(document.getElementById('ov-dr-filter-value'), document.getElementById('ov-dr-filter-type').value);
+  fillOvTypeValue(
+    document.getElementById('ov-dr-filter-value'),
+    document.getElementById('ov-dr-filter-sub'),
+    document.getElementById('ov-dr-filter-type').value
+  );
+  fillOvSubOptions(
+    document.getElementById('ov-dr-filter-type'),
+    document.getElementById('ov-dr-filter-value'),
+    document.getElementById('ov-dr-filter-sub')
+  );
+  renderOvDormantRisk();
+}
+function onOvDrFilterValueChange() {
+  fillOvSubOptions(
+    document.getElementById('ov-dr-filter-type'),
+    document.getElementById('ov-dr-filter-value'),
+    document.getElementById('ov-dr-filter-sub')
+  );
   renderOvDormantRisk();
 }
 
 function renderOvDormantRisk() {
   const type = document.getElementById('ov-dr-filter-type').value;
   const val = document.getElementById('ov-dr-filter-value').value;
-  const dormantRows = filterByScope(data.dormant);
-
-  let rows = dormantRows;
-  if (type === 'region') {
-    rows = rows.filter(r => extractSido(r['주소']) === val);
-  } else if (type === 'staff') {
-    rows = rows.filter(r => r['담당자'] === val);
-  }
+  const sub = document.getElementById('ov-dr-filter-sub').value;
+  let rows = applyOvFilter(filterByScope(data.dormant), type, val, sub);
 
   const dormantRisk = rows.map(r => {
     const d = parseDateLoose(r['마지막거래일']);
@@ -948,6 +1040,7 @@ function renderOvDormantRisk() {
 }
 
 
+
 function renderDormantRiskRow(r) {
   return `<tr>
     <td>${escHtml(r['거래처명'])}</td>
@@ -975,36 +1068,44 @@ function goToAccountsFiltered(filterKey) {
 }
 
 function onOvItemFilterTypeChange() {
-  const type = document.getElementById('ov-item-filter-type').value;
-  const valSel = document.getElementById('ov-item-filter-value');
-  if (type === 'all') {
-    valSel.style.display = 'none';
-    valSel.innerHTML = '';
-  } else if (type === 'region') {
-    valSel.style.display = '';
-    valSel.innerHTML = ['광주','전남','전북'].map(r => `<option value="${r}">${r}</option>`).join('');
-  } else if (type === 'staff') {
-    valSel.style.display = '';
-    const staffSet = new Set();
-    [...data.active, ...data.new, ...data.dormant].forEach(r => { if (r['담당자']) staffSet.add(r['담당자']); });
-    valSel.innerHTML = [...staffSet].sort().map(s => `<option value="${escHtml(s)}">${escHtml(s)}</option>`).join('');
-  }
+  fillOvTypeValue(
+    document.getElementById('ov-item-filter-value'),
+    document.getElementById('ov-item-filter-sub'),
+    document.getElementById('ov-item-filter-type').value
+  );
+  fillOvSubOptions(
+    document.getElementById('ov-item-filter-type'),
+    document.getElementById('ov-item-filter-value'),
+    document.getElementById('ov-item-filter-sub')
+  );
+  renderOvItemTop3();
+}
+function onOvItemFilterValueChange() {
+  fillOvSubOptions(
+    document.getElementById('ov-item-filter-type'),
+    document.getElementById('ov-item-filter-value'),
+    document.getElementById('ov-item-filter-sub')
+  );
   renderOvItemTop3();
 }
 
 function renderOvItemTop3() {
   const type = document.getElementById('ov-item-filter-type').value;
   const val = document.getElementById('ov-item-filter-value').value;
+  const sub = document.getElementById('ov-item-filter-sub').value;
   const lookup = buildAccountLookup();
 
   const itemTotals = {};
-  const itemOriginCnt = {}; // 품목별 원산지 빈도 (여러 거래처에 걸쳐 최빈값을 대표 원산지로 표시)
-  const itemBrandCnt = {};  // 품목별 브랜드 빈도 (동일 방식)
+  const itemOriginCnt = {};
+  const itemBrandCnt = {};
   data.top5raw.forEach(r => {
     if (type !== 'all') {
       const info = lookup.get(normName(r['거래처명']));
       if (!info) return; // 매칭 안 되면 필터 적용 시 제외
-      if (type === 'region' && extractSido(info.주소) !== val) return;
+      if (type === 'region') {
+        if (extractSido(info.주소) !== val) return;
+        if (sub && extractSigungu(info.주소) !== sub) return;
+      }
       if (type === 'staff' && info.담당자 !== val) return;
     }
     for (let i=1;i<=5;i++) {
@@ -1227,7 +1328,7 @@ function renderStaffContent() {
 let acctFilter = 'active';
 let acctPageBuilt = false; // 최초 1회만 DOM 골격을 그림 (지도 DOM 파괴 방지)
 let acctSearchTerm = '';
-let acctGroupByStaff = false;
+let acctStaffFilter = ''; // 선택된 담당자 ('' = 전체)
 
 function renderAccountsPage() {
   const page = document.getElementById('page-accounts');
@@ -1239,7 +1340,7 @@ function renderAccountsPage() {
         <button class="chip-btn" data-af="new">신규거래처</button>
         <button class="chip-btn" data-af="dormant">휴면거래처</button>
         <input type="text" id="acct-search" placeholder="거래처명·담당자 검색" style="background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:7px 10px;color:var(--text);font-size:12.5px;min-width:160px">
-        <button class="chip-btn" id="acct-group-toggle">담당자별 그룹보기</button>
+        <select id="acct-staff-sel" style="background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:7px 10px;color:var(--text);font-size:12.5px"></select>
         <button class="chip-btn" id="acct-csv-btn">CSV 내보내기</button>
       </div>
       <div class="grid g2">
@@ -1257,7 +1358,9 @@ function renderAccountsPage() {
       const btn = e.target.closest('[data-af]');
       if (!btn) return;
       acctFilter = btn.dataset.af;
+      acctStaffFilter = ''; // 거래처 종류 바꾸면 담당자 선택 초기화
       updateAcctFilterButtons();
+      fillAcctStaffOptions();
       renderAccountsTable();
       renderAccountsMap();
     });
@@ -1266,18 +1369,30 @@ function renderAccountsPage() {
       renderAccountsTable();
       renderAccountsMap();
     });
-    document.getElementById('acct-group-toggle').addEventListener('click', (e) => {
-      acctGroupByStaff = !acctGroupByStaff;
-      e.target.classList.toggle('on', acctGroupByStaff);
+    document.getElementById('acct-staff-sel').addEventListener('change', (e) => {
+      acctStaffFilter = e.target.value;
       renderAccountsTable();
+      renderAccountsMap();
     });
     document.getElementById('acct-csv-btn').addEventListener('click', exportAcctCsv);
     acctPageBuilt = true;
   }
 
   updateAcctFilterButtons();
+  fillAcctStaffOptions();
   renderAccountsTable();
   renderAccountsMap();
+}
+
+// 현재 거래처 종류(active/new/dormant)의 담당자 목록으로 드롭다운 채우기
+function fillAcctStaffOptions() {
+  const sel = document.getElementById('acct-staff-sel');
+  if (!sel) return;
+  const set = new Set();
+  filterByScope(data[acctFilter]).forEach(r => { if (r['담당자']) set.add(r['담당자']); });
+  const names = [...set].sort();
+  sel.innerHTML = '<option value="">담당자 전체</option>' + names.map(n => `<option value="${escHtml(n)}">${escHtml(n)}</option>`).join('');
+  sel.value = acctStaffFilter;
 }
 
 function updateAcctFilterButtons() {
@@ -1286,9 +1401,12 @@ function updateAcctFilterButtons() {
   });
 }
 
-// 검색어(거래처명/담당자) + 현재 필터 적용된 목록 반환 (지도·테이블·CSV 공용)
+// 검색어(거래처명/담당자) + 담당자 선택 + 현재 필터 적용된 목록 반환 (지도·테이블·CSV 공용)
 function getAcctFilteredRows() {
   let rows = filterByScope(data[acctFilter]);
+  if (acctStaffFilter) {
+    rows = rows.filter(r => r['담당자'] === acctStaffFilter);
+  }
   if (acctSearchTerm) {
     const term = acctSearchTerm.toLowerCase();
     rows = rows.filter(r =>
@@ -1305,12 +1423,6 @@ function renderAccountsTable() {
   const rows = getAcctFilteredRows();
   const holder = document.getElementById('acct-table-holder');
   if (!rows.length) { holder.innerHTML = `<div class="empty-hint">데이터가 없습니다.</div>`; return; }
-
-  if (acctGroupByStaff) {
-    holder.innerHTML = renderAcctGroupedByStaff(rows);
-    bindAcctRowClicks();
-    return;
-  }
 
   const sorted = acctFilter === 'dormant'
     ? [...rows].sort((a,b)=>(b._days||0)-(a._days||0))
@@ -1357,55 +1469,6 @@ function bindAcctRowClicks() {
       curIW.setMap(acctMapInst);
     };
   });
-}
-
-// 기존거래처는 곧 휴면 위험(3개월+)을 배지로 미리 경고, 휴면거래처는 경과 구간 배지
-function renderAcctStatusBadge(r) {
-  if (r._days == null) return '-';
-  if (acctFilter === 'dormant') {
-    return `<span class="badge ${r._days>=180?'b-red':'b-orange'}">${classifyDormant(r._days)}</span>`;
-  }
-  if (acctFilter === 'active' && r._days >= 90) {
-    return `<span class="badge b-orange">휴면위험 ${r._days}일</span>`;
-  }
-  return '';
-}
-
-function renderAcctGroupedByStaff(rows) {
-  const groups = {};
-  rows.forEach(r => {
-    const name = r['담당자'] || '(미배정)';
-    (groups[name] = groups[name] || []).push(r);
-  });
-  const top3map = buildTop3ByAccount();
-  const names = Object.keys(groups).sort();
-  return `<div style="max-height:520px;overflow-y:auto">` + names.map(name => `
-    <details style="margin-bottom:8px;border:1px solid var(--border);border-radius:8px;overflow:hidden">
-      <summary style="padding:9px 12px;cursor:pointer;font-size:12.5px;font-weight:600;background:var(--surface2)">
-        ${escHtml(name)} <span style="color:var(--muted);font-weight:400">(${groups[name].length}건)</span>
-      </summary>
-      <table class="dt" style="margin:0">
-        <tbody>
-          ${groups[name].map(r => {
-            const lat = parseFloat(r['위도']), lng = parseFloat(r['경도']);
-            const hasPos = !isNaN(lat) && !isNaN(lng);
-            const items = top3map.get(normName(r['거래처명'])) || [];
-            return `<tr class="acct-row" ${hasPos?`data-lat="${lat}" data-lng="${lng}" data-name="${escHtml(r['거래처명'])}" style="cursor:pointer"`:''}>
-            <td style="${hasPos?'color:var(--accent)':''}">${escHtml(r['거래처명'])}</td>
-            <td style="font-size:11.5px">${items.length ? items.map(escHtml).join('<br>') : '<span style="color:var(--muted)">-</span>'}</td>
-          </tr>`;
-          }).join('')}
-        </tbody>
-      </table>
-    </details>
-  `).join('') + `</div>`;
-}
-
-function classifyDormant(days) {
-  if (days >= 365) return '1년+';
-  if (days >= 180) return '6개월~1년';
-  if (days >= 90) return '3~6개월';
-  return days + '일';
 }
 
 // 현재 필터/검색 기준 목록을 CSV로 내보냄 (엑셀에서 한글 깨짐 방지를 위해 BOM 포함)
@@ -1557,6 +1620,14 @@ function getFilteredTargets() {
     const use = String(r['수입육사용']||'').trim();
     return (use === 'O' || use === '') && !existingNames.has(normName(r['업체명']));
   });
+  // 원산지검토 시트에 동일 업체가 중복 적재된 경우(OriginCheck 이중 flush 잔재) 업체명+주소 기준 1건으로 정리
+  const seen = new Set();
+  targets = targets.filter(t => {
+    const key = normName(t['업체명']) + '|' + normName(t['주소']);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
   // 지역 팀장은 본인 지역(주소 시/도) 타겟만 조회. 관리자는 전체.
   targets = targets.filter(t => addrInRegionScope(t['주소']));
   if (targetFilterCat) {
@@ -1602,15 +1673,36 @@ function renderTargetsContent() {
       <table class="dt">
         <thead><tr><th>업체명</th><th>카테고리</th><th>수입육사용</th><th>발견일</th><th>방문</th></tr></thead>
         <tbody>
-          ${targets.map(t => `<tr>
-            <td>${escHtml(t['업체명'])}</td>
+          ${targets.map(t => {
+            const lat = parseFloat(t['위도']), lng = parseFloat(t['경도']);
+            const hasPos = !isNaN(lat) && !isNaN(lng);
+            return `<tr class="target-row" ${hasPos?`data-lat="${lat}" data-lng="${lng}" data-name="${escHtml(t['업체명'])}" style="cursor:pointer"`:''}>
+            <td style="${hasPos?'color:var(--accent);text-decoration:underline':''}">${escHtml(t['업체명'])}</td>
             <td>${escHtml(t['카테고리']||'-')}</td>
             <td><span class="badge ${t['수입육사용']==='O'?'b-red':'b-gray'}">${escHtml(t['수입육사용']||'미확인')}</span></td>
             <td>${escHtml(t['발견일']||'-')}</td>
             <td>${visitedSet.has(normName(t['업체명'])) ? '🚩' : ''}</td>
-          </tr>`).join('')}
+          </tr>`;
+          }).join('')}
         </tbody>
       </table>` : `<div class="empty-hint">해당 조건의 미개척 타겟이 없습니다.</div>`;
+
+    // 업체명 클릭 시 지도 이동 + 인포윈도우
+    tableHolder.querySelectorAll('.target-row[data-lat]').forEach(el => {
+      el.onclick = () => {
+        const lat = parseFloat(el.dataset.lat), lng = parseFloat(el.dataset.lng);
+        if (isNaN(lat) || isNaN(lng) || !targetMapInst) return;
+        const pos = new kakao.maps.LatLng(lat, lng);
+        targetMapInst.setLevel(5);
+        targetMapInst.panTo(pos);
+        clearIW();
+        curIW = new kakao.maps.CustomOverlay({
+          position:pos, yAnchor:1.4,
+          content:`<div class="iw"><div class="iw-name">${escHtml(el.dataset.name)}</div></div>`
+        });
+        curIW.setMap(targetMapInst);
+      };
+    });
   }
 
   renderTargetsMap(targets, visitedSet);
