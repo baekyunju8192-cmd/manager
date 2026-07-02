@@ -1696,9 +1696,10 @@ function renderTargetsContent() {
         targetMapInst.setLevel(5);
         targetMapInst.panTo(pos);
         clearIW();
+        const kakaoUrl = `https://map.kakao.com/link/map/${encodeURIComponent(el.dataset.name||'타겟')},${lat},${lng}`;
         curIW = new kakao.maps.CustomOverlay({
           position:pos, yAnchor:1.4,
-          content:`<div class="iw"><div class="iw-name">${escHtml(el.dataset.name)}</div></div>`
+          content:`<div class="iw"><div class="iw-name">${escHtml(el.dataset.name)}</div><a href="${kakaoUrl}" target="_blank" rel="noopener" style="display:inline-block;margin-top:5px;font-size:11px;color:#3a7bd5;text-decoration:underline">카카오맵에서 열기 →</a></div>`
         });
         curIW.setMap(targetMapInst);
       };
@@ -1737,9 +1738,10 @@ function renderTargetsMap(targets, visitedSet) {
     const marker = new kakao.maps.Marker({ position:pos, map:targetMapInst, image:markerImg });
     kakao.maps.event.addListener(marker, 'click', () => {
       clearIW();
+      const kakaoUrl = `https://map.kakao.com/link/map/${encodeURIComponent(t['업체명']||'타겟')},${lat},${lng}`;
       curIW = new kakao.maps.CustomOverlay({
         position:pos, yAnchor:1.4,
-        content:`<div class="iw"><div class="iw-name">${isVisited?'🚩 ':''}${escHtml(t['업체명'])}</div><div class="iw-addr">${escHtml(t['카테고리']||'')}</div></div>`
+        content:`<div class="iw"><div class="iw-name">${isVisited?'🚩 ':''}${escHtml(t['업체명'])}</div><div class="iw-addr">${escHtml(t['카테고리']||'')}</div><a href="${kakaoUrl}" target="_blank" rel="noopener" style="display:inline-block;margin-top:5px;font-size:11px;color:#3a7bd5;text-decoration:underline">카카오맵에서 열기 →</a></div>`
       });
       curIW.setMap(targetMapInst);
     });
