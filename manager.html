@@ -304,6 +304,19 @@ let mgrPolylines = [];
 let curIW = null;
 function clearIW() { if (curIW) { curIW.setMap(null); curIW = null; } }
 
+// 지도 위 거래처명 라벨(검은 배경 흰 글씨) 오버레이 — 좌표 마커와 마찬가지로 클릭 시 카카오맵 페이지로 연결
+function makeNameOverlay(name, lat, lng) {
+  const div = document.createElement('div');
+  div.className = 'iw';
+  const nameDiv = document.createElement('div');
+  nameDiv.className = 'iw-name';
+  nameDiv.textContent = name;
+  nameDiv.style.cursor = 'pointer';
+  nameDiv.onclick = () => openKakaoMap(name, lat, lng);
+  div.appendChild(nameDiv);
+  return div;
+}
+
 // 거래처명을 누르거나 지도 좌표(마커)를 누르면 별도 버튼 없이 바로 카카오맵 페이지로 연결
 function openKakaoMap(name, lat, lng) {
   if (isNaN(lat) || isNaN(lng)) return;
@@ -1269,9 +1282,10 @@ function renderStaffContent() {
     return dist;
   }
 
-  const periodSelHtml = `<select id="staff-period-sel" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:3px 7px;color:var(--text);font-size:11px;font-weight:600;text-transform:none;letter-spacing:0;margin-left:6px">
+  const periodSelHtml = `<select id="staff-period-sel" style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:3px 7px;color:var(--text);font-size:11px;font-weight:600;text-transform:none;letter-spacing:0">
     ${STAFF_PERIOD_OPTIONS.map(o => `<option value="${o.days}" ${o.days===staffPeriod.days?'selected':''}>${o.label}</option>`).join('')}
   </select>`;
+  const visitHeaderHtml = `<span style="display:inline-flex;align-items:center;gap:6px;border:1.5px solid var(--accent);border-radius:16px;padding:4px 6px 4px 12px">신규영업처 방문수${periodSelHtml}</span>`;
 
   holder.innerHTML = `
     <div class="section-title">사원별 거래처 현황</div>
@@ -1281,7 +1295,7 @@ function renderStaffContent() {
       </div>
       ${staffList.length ? `
         <table class="dt">
-          <thead><tr><th>사원명</th><th>기존</th><th>신규</th><th>휴면</th><th style="white-space:nowrap">신규영업처 방문수${periodSelHtml}</th></tr></thead>
+          <thead><tr><th>사원명</th><th>기존</th><th>신규</th><th>휴면</th><th style="white-space:nowrap">${visitHeaderHtml}</th></tr></thead>
           <tbody>
             ${staffList.map(name => {
               const pv = prospectVisitStats(name);
@@ -1475,7 +1489,7 @@ function bindAcctRowClicks() {
       clearIW();
       curIW = new kakao.maps.CustomOverlay({
         position:pos, yAnchor:1.4,
-        content:`<div class="iw"><div class="iw-name">${escHtml(el.dataset.name)}</div></div>`
+        content: makeNameOverlay(el.dataset.name, lat, lng)
       });
       curIW.setMap(acctMapInst);
     };
@@ -1735,7 +1749,7 @@ function renderTargetsContent() {
         clearIW();
         curIW = new kakao.maps.CustomOverlay({
           position:pos, yAnchor:1.4,
-          content:`<div class="iw"><div class="iw-name">${escHtml(el.dataset.name)}</div></div>`
+          content: makeNameOverlay(el.dataset.name, lat, lng)
         });
         curIW.setMap(targetMapInst);
       };
