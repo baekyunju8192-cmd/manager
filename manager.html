@@ -191,6 +191,26 @@ table.dt tr:last-child td { border-bottom:none; }
   <div id="pw-error">비밀번호가 틀렸습니다.</div>
 </div>
 
+<!-- 비밀번호 변경 모달 -->
+<div id="pw-change-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:10000;align-items:center;justify-content:center">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:26px;width:320px;display:flex;flex-direction:column;gap:12px">
+    <div style="font-size:15px;font-weight:800">비밀번호 변경</div>
+    <div id="pwc-step1">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px">본인 확인 — 힌트: <b>퇴근8282</b></div>
+      <input id="pwc-quiz" type="text" placeholder="힌트 정답 입력" style="width:100%;padding:9px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;box-sizing:border-box">
+      <div id="pwc-quiz-error" style="display:none;color:var(--red);font-size:11.5px;margin-top:6px">정답이 틀렸습니다.</div>
+      <button onclick="verifyPwQuiz()" style="width:100%;margin-top:12px;padding:10px;background:var(--accent);border:none;border-radius:8px;color:#fff;font-weight:700;font-size:13px;cursor:pointer">확인</button>
+    </div>
+    <div id="pwc-step2" style="display:none">
+      <input id="pwc-new1" type="password" placeholder="새 비밀번호" style="width:100%;padding:9px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;box-sizing:border-box;margin-bottom:8px">
+      <input id="pwc-new2" type="password" placeholder="새 비밀번호 확인" style="width:100%;padding:9px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;box-sizing:border-box">
+      <div id="pwc-save-error" style="display:none;color:var(--red);font-size:11.5px;margin-top:6px"></div>
+      <button onclick="submitPwChange()" style="width:100%;margin-top:12px;padding:10px;background:var(--accent);border:none;border-radius:8px;color:#fff;font-weight:700;font-size:13px;cursor:pointer">변경하기</button>
+    </div>
+    <button onclick="closePwChangeModal()" style="width:100%;padding:8px;background:none;border:1px solid var(--border);border-radius:8px;color:var(--muted);font-size:12px;cursor:pointer">취소</button>
+  </div>
+</div>
+
 <!-- 헤더 -->
 <header>
   <div class="logo">AZ <span>팀장 대시보드</span></div>
@@ -206,6 +226,7 @@ table.dt tr:last-child td { border-bottom:none; }
   <div class="hright">
     <span class="region-tag" id="region-tag">-</span>
     <span id="hstatus">로딩 중...</span>
+    <button class="logout-btn" onclick="openPwChangeModal()">비밀번호 변경</button>
     <button class="logout-btn" id="refresh-btn" onclick="refreshData()">새로고침</button>
     <button class="logout-btn" onclick="mgrLogout()">로그아웃</button>
   </div>
@@ -234,6 +255,9 @@ table.dt tr:last-child td { border-bottom:none; }
 
   <!-- 품목 현황 -->
   <div class="page" id="page-items"></div>
+
+  <!-- 계정 관리 (관리자 전용, 로그인 후 동적으로 탭 노출) -->
+  <div class="page" id="page-accountsadmin"></div>
 </div>
 
 <script>
@@ -241,7 +265,7 @@ table.dt tr:last-child td { border-bottom:none; }
 // 설정
 // =====================================================
 const SS_ID = '1mIXExxFRuZmcy7VKEe_w63Yu1QOqT5r8qondm4k91-c';
-const WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbyodBLIb-SOuyAdcNGFf0NVHWIt_01d7JHTeAAULlhsKyU0M-cUzQlvtgRd6nxPun9_/exec';
+const WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbznhjfaRRXQ7rxT63qBiFXnLbEF35yZXu6Cev3M52w05iApZ3dtMmDOA5PfRA2vILjpcQ/exec';
 const GID = {
   active: '0',
   new: '2043143991',
@@ -253,20 +277,15 @@ const GID = {
 const COMPANY = { lat:35.2162723, lng:126.8245735, name:'(주)에이젯시스템' };
 const COLORS = { active:'#3b82f6', new:'#27ae60', dormant:'#888888', target:'#f5a623', route:'#5c6ef8' };
 
-// 팀장 계정 / 지역별 사원 배정 — 추후 확정 시 값 교체 (비번 전부 임시 0308)
-const MANAGERS = {
-  '관리자':     { pw:'0308', region:'관리자' },
-  '광주팀장':    { pw:'0308', region:'광주' },
-  '전남동부팀장': { pw:'0308', region:'전남동부' },
-  '전남서부팀장': { pw:'0308', region:'전남서부' },
-  '전북팀장':    { pw:'0308', region:'전북' }
-};
+// 로그인 선택지에 표시할 계정 ID 목록 — 비밀번호는 서버(WebApp.gs)에서만 검증하며 클라이언트로 내려받지 않음
+const DEFAULT_MANAGER_IDS = ['관리자','광주팀장','전남동부팀장','전남서부팀장','전북팀장'];
 const REGION_STAFF = {
   // '관리자'는 지역별 배정과 무관하게 항상 전체 데이터를 봄 (isStaffInScope에서 특수 처리)
-  '광주':     ['FIXME'],
-  '전남동부':  ['FIXME'],
-  '전남서부':  ['FIXME'],
-  '전북':     ['FIXME']
+  // 입퇴사 등으로 담당자가 바뀌면 아래 배열만 직접 수정하면 됨
+  '광주':     ['김미남광주','김미남','류민상','심규현','강경현광주','황지환'],
+  '전남동부':  ['서한결','이동현','조준헌'],
+  '전남서부':  ['임치현','나규호','천경준'],
+  '전북':     ['김동국','김현우','최선영','정기태']
 };
 
 // =====================================================
@@ -275,6 +294,7 @@ const REGION_STAFF = {
 let CUR_MGR = null;      // 로그인한 팀장 ID
 let CUR_REGION = null;   // 담당 지역
 let CUR_STAFF = [];      // 담당 지역 소속 사원 목록 (필터링 기준)
+let CUR_MGR_PW = null;   // 세션 동안만 메모리에 유지 (비밀번호 변경/관리자 열람 시 서버 재검증용, localStorage엔 저장하지 않음)
 
 let data = { active:[], new:[], dormant:[], plan:[], top5raw:[], origin:[] };
 let loadFailed = { active:false, new:false, dormant:false, plan:false, top5:false, origin:false };
@@ -287,58 +307,92 @@ let curIW = null;
 function clearIW() { if (curIW) { curIW.setMap(null); curIW = null; } }
 
 // =====================================================
-// 로그인
+// 로그인 (팀장계정 시트 기반, 서버에서 직접 검증 — 비밀번호를 클라이언트로 내려받지 않음)
 // =====================================================
-(function initMgrSelect() {
+function initMgrSelect() {
   const sel = document.getElementById('mgr-select');
-  Object.keys(MANAGERS).forEach(name => {
+  sel.innerHTML = '<option value="">팀장 선택</option>';
+  DEFAULT_MANAGER_IDS.forEach(name => {
     const opt = document.createElement('option');
     opt.value = name; opt.textContent = name;
     sel.appendChild(opt);
   });
-})();
+}
+initMgrSelect();
 
-function checkMgrLogin() {
+async function checkMgrLogin() {
   const id = document.getElementById('mgr-select').value;
   const pw = document.getElementById('mgr-pw').value;
   const err = document.getElementById('pw-error');
 
   if (!id) { err.style.display='block'; err.textContent='팀장을 선택해주세요.'; return; }
-  const mgr = MANAGERS[id];
-  if (!mgr || mgr.pw !== pw) { err.style.display='block'; err.textContent='비밀번호가 틀렸습니다.'; document.getElementById('mgr-pw').value=''; return; }
+  if (!pw) { err.style.display='block'; err.textContent='비밀번호를 입력해주세요.'; return; }
 
   err.style.display = 'none';
-  document.getElementById('auth-overlay').style.display = 'none';
-  localStorage.setItem('az_mgr_auth', '1');
-  localStorage.setItem('az_mgr_id', id);
-  CUR_MGR = id;
-  CUR_REGION = mgr.region;
-  CUR_STAFF = REGION_STAFF[CUR_REGION] || [];
-  document.getElementById('region-tag').textContent = CUR_REGION;
-  document.getElementById('hstatus').textContent = `${id} 님 | 데이터 로딩 중...`;
-  bootAfterLogin();
+  const loginBtn = document.querySelector('#auth-overlay button');
+  if (loginBtn) { loginBtn.disabled = true; loginBtn.textContent = '확인 중...'; }
+
+  try {
+    const res = await fetch(WEBAPP_URL, {
+      method:'POST',
+      body: JSON.stringify({ action:'login', id, pw })
+    });
+    const json = await res.json();
+    if (!json.success) {
+      err.style.display='block'; err.textContent = json.msg || '비밀번호가 틀렸습니다.';
+      document.getElementById('mgr-pw').value='';
+      return;
+    }
+
+    document.getElementById('auth-overlay').style.display = 'none';
+    // 비밀번호는 localStorage에 저장하지 않음 — 세션 유지를 위해 id/region만 저장, 재검증은 세션 내 메모리 값 사용
+    localStorage.setItem('az_mgr_auth', '1');
+    localStorage.setItem('az_mgr_id', id);
+    localStorage.setItem('az_mgr_region', json.region || '');
+    CUR_MGR = id;
+    CUR_MGR_PW = pw;
+    CUR_REGION = json.region || '';
+    CUR_STAFF = REGION_STAFF[CUR_REGION] || [];
+    document.getElementById('region-tag').textContent = CUR_REGION || '-';
+    document.getElementById('hstatus').textContent = `${id} 님 | 데이터 로딩 중...`;
+    setupAdminTabIfNeeded();
+    bootAfterLogin();
+    // 초기 비밀번호(0308) 사용 중이면 변경 유도 (서버가 mustChangePw로 알림)
+    if (json.mustChangePw) {
+      setTimeout(() => {
+        alert('현재 초기 비밀번호를 사용 중입니다. 보안을 위해 우측 상단 "비밀번호 변경"에서 비밀번호를 변경해주세요.');
+      }, 800);
+    }
+  } catch (e) {
+    err.style.display='block'; err.textContent = '로그인 요청 실패: ' + e.message;
+  } finally {
+    if (loginBtn) { loginBtn.disabled = false; loginBtn.textContent = '로그인'; }
+  }
 }
 
 function mgrLogout() {
   if (!confirm('로그아웃 하시겠습니까?')) return;
   localStorage.removeItem('az_mgr_auth');
   localStorage.removeItem('az_mgr_id');
+  localStorage.removeItem('az_mgr_region');
   location.reload();
 }
 
+// 세션 복원: 비밀번호는 애초에 localStorage에 저장하지 않으므로, 새로고침 시에는
+// id/region만으로 화면 상태를 복원한다 (서버 재인증 없이 로컬 세션을 신뢰).
+// 비밀번호가 필요한 동작(비번변경, 계정관리 열람)은 CUR_MGR_PW가 비어있으면 재로그인을 요구한다.
 function trySessionRestore() {
   if (localStorage.getItem('az_mgr_auth') === '1') {
     const id = localStorage.getItem('az_mgr_id');
-    const mgr = MANAGERS[id];
-    if (mgr) {
-      document.getElementById('auth-overlay').style.display = 'none';
-      CUR_MGR = id;
-      CUR_REGION = mgr.region;
-      CUR_STAFF = REGION_STAFF[CUR_REGION] || [];
-      document.getElementById('region-tag').textContent = CUR_REGION;
-      bootAfterLogin();
-      return;
-    }
+    if (!id) return;
+    document.getElementById('auth-overlay').style.display = 'none';
+    CUR_MGR = id;
+    CUR_MGR_PW = null; // 새로고침 후에는 비밀번호를 모름 — 필요 시 재확인 요구
+    CUR_REGION = localStorage.getItem('az_mgr_region') || '';
+    CUR_STAFF = REGION_STAFF[CUR_REGION] || [];
+    document.getElementById('region-tag').textContent = CUR_REGION || '-';
+    setupAdminTabIfNeeded();
+    bootAfterLogin();
   }
 }
 
@@ -347,6 +401,123 @@ function isStaffInScope(name) {
   if (!name) return false;
   if (!CUR_STAFF.length || CUR_STAFF.includes('FIXME')) return true;
   return CUR_STAFF.includes(String(name).trim());
+}
+
+// =====================================================
+// 비밀번호 변경 (보완 퀴즈: 힌트 "퇴근8282" → 정답 "gohome8282")
+// =====================================================
+const PW_QUIZ_ANSWER = 'gohome8282';
+let pwQuizPassed = false;
+
+function openPwChangeModal() {
+  // 새로고침으로 세션이 복원된 경우 현재 비밀번호를 서버가 모르는 채 CUR_MGR_PW가 비어있을 수 있음
+  // → 비번 변경은 현재 비밀번호 확인이 필요하므로 재로그인 요구
+  if (!CUR_MGR_PW) {
+    alert('비밀번호 변경을 위해서는 다시 로그인해주세요.');
+    mgrLogout();
+    return;
+  }
+  pwQuizPassed = false;
+  document.getElementById('pwc-quiz').value = '';
+  document.getElementById('pwc-new1').value = '';
+  document.getElementById('pwc-new2').value = '';
+  document.getElementById('pwc-quiz-error').style.display = 'none';
+  document.getElementById('pwc-save-error').style.display = 'none';
+  document.getElementById('pwc-step1').style.display = '';
+  document.getElementById('pwc-step2').style.display = 'none';
+  document.getElementById('pw-change-modal').style.display = 'flex';
+}
+function closePwChangeModal() {
+  document.getElementById('pw-change-modal').style.display = 'none';
+}
+function verifyPwQuiz() {
+  const val = document.getElementById('pwc-quiz').value.trim().toLowerCase();
+  if (val !== PW_QUIZ_ANSWER) {
+    document.getElementById('pwc-quiz-error').style.display = 'block';
+    return;
+  }
+  pwQuizPassed = true;
+  document.getElementById('pwc-step1').style.display = 'none';
+  document.getElementById('pwc-step2').style.display = '';
+}
+async function submitPwChange() {
+  if (!pwQuizPassed) return;
+  const p1 = document.getElementById('pwc-new1').value;
+  const p2 = document.getElementById('pwc-new2').value;
+  const errEl = document.getElementById('pwc-save-error');
+  if (!p1 || p1.length < 4) { errEl.textContent = '비밀번호는 4자 이상 입력해주세요.'; errEl.style.display='block'; return; }
+  if (p1 !== p2) { errEl.textContent = '비밀번호가 일치하지 않습니다.'; errEl.style.display='block'; return; }
+
+  try {
+    const res = await fetch(WEBAPP_URL, {
+      method:'POST',
+      body: JSON.stringify({ action:'changePassword', id: CUR_MGR, curPw: CUR_MGR_PW, newPw: p1, region: CUR_REGION })
+    });
+    const json = await res.json();
+    if (!json.success) { errEl.textContent = json.msg || '변경 실패'; errEl.style.display='block'; return; }
+    CUR_MGR_PW = p1; // 세션 메모리 값 갱신 (재로그인 없이 이어서 사용 가능)
+    closePwChangeModal();
+    alert('비밀번호가 변경되었습니다.');
+  } catch (e) {
+    errEl.textContent = '변경 실패: ' + e.message;
+    errEl.style.display = 'block';
+  }
+}
+
+// =====================================================
+// 관리자 전용 "계정 관리" 탭 — 관리자 로그인 시에만 탭 목록 맨 뒤에 노출
+// =====================================================
+function setupAdminTabIfNeeded() {
+  if (CUR_REGION !== '관리자') return;
+  const nav = document.getElementById('toptabs');
+  if (document.querySelector('.ttab[data-page="accountsadmin"]')) return; // 중복 방지
+  const btn = document.createElement('button');
+  btn.className = 'ttab';
+  btn.dataset.page = 'accountsadmin';
+  btn.textContent = '계정 관리';
+  nav.appendChild(btn);
+}
+
+async function renderAccountsAdminPage() {
+  const page = document.getElementById('page-accountsadmin');
+  if (!CUR_MGR_PW) {
+    page.innerHTML = `<div class="empty-hint">계정 정보 열람을 위해 다시 로그인해주세요.<br><button class="chip-btn" style="margin-top:10px" onclick="mgrLogout()">다시 로그인</button></div>`;
+    return;
+  }
+  page.innerHTML = `<div class="empty-hint">계정 정보를 불러오는 중...</div>`;
+  try {
+    const res = await fetch(WEBAPP_URL, {
+      method:'POST',
+      body: JSON.stringify({ action:'getManagerAccounts', reqId: CUR_MGR, reqPw: CUR_MGR_PW })
+    });
+    const json = await res.json();
+    if (!json.success) {
+      page.innerHTML = `<div class="empty-hint">${escHtml(json.msg || '권한이 없습니다.')}</div>`;
+      return;
+    }
+    const remote = Array.isArray(json.data) ? json.data : [];
+
+    page.innerHTML = `
+      <div class="section-title">팀장 계정 목록</div>
+      <div class="card">
+        <div class="stat-sub" style="margin-bottom:12px">비밀번호를 잊은 팀장이 있을 때 여기서 확인할 수 있습니다. 이 화면은 관리자에게만 보입니다.</div>
+        <table class="dt">
+          <thead><tr><th>ID</th><th>지역</th><th>비밀번호</th></tr></thead>
+          <tbody>
+            ${remote.length ? remote.map(a => `<tr>
+                <td style="font-weight:600">${escHtml(a.id)}</td>
+                <td>${escHtml(a.region)}</td>
+                <td><code>${escHtml(a.pw)}</code></td>
+              </tr>`).join('') : `<tr><td colspan="3" style="text-align:center;color:var(--muted)">
+                아직 비밀번호를 변경한 계정이 없습니다. (전체 계정 기본 비밀번호: 0308)
+              </td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    `;
+  } catch (e) {
+    page.innerHTML = `<div class="empty-hint">계정 정보를 불러오지 못했습니다: ${escHtml(e.message)}</div>`;
+  }
 }
 
 // =====================================================
@@ -474,7 +645,8 @@ const TAB_RENDERERS = {
   staff: renderStaffPage,
   accounts: renderAccountsPage,
   targets: renderTargetsPage,
-  items: renderItemsPage
+  items: renderItemsPage,
+  accountsadmin: renderAccountsAdminPage
 };
 let renderedTabs = new Set(); // 이미 초기 렌더된 탭 추적 (지도 탭 중복 생성 방지용)
 
@@ -589,22 +761,11 @@ function renderOverview() {
   const dormant = filterByScope(data.dormant);
   const planToday = filterByScope(data.plan);
 
-  // 신규 개척 목표 집계 — '신규'(신규거래처 목록 선택) + '신규영업처'(경로 추가) 합산
-  // 기존/휴면은 정기방문이라 목표 대비율 의미가 적어 제외
   const newPlanToday = planToday.filter(isNewBizPlanRow);
   const newPlanTotal = newPlanToday.length;
   const newPlanDone = newPlanToday.filter(r => String(r['방문완료']).trim().toLowerCase() === 'true').length;
   const newVisitRate = newPlanTotal ? Math.round(newPlanDone/newPlanTotal*100) : null;
 
-  // 휴면 위험: 기존거래처 중 마지막거래일 3개월 이상 경과
-  const dormantRisk = active.map(r => {
-    const d = parseDateLoose(r['마지막거래일']);
-    const days = daysSince(d);
-    return { ...r, _days: days };
-  }).filter(r => r._days !== null && r._days >= 90)
-    .sort((a,b) => b._days - a._days);
-
-  // 미개척 타겟: 원산지검토 중 수입육사용 O 또는 빈칸 + 기존/신규거래처에 없는 업체
   const existingNames = new Set([...data.active, ...data.new].map(r => normName(r['거래처명'])));
   const targets = data.origin.filter(r => {
     const use = String(r['수입육사용']||'').trim();
@@ -612,7 +773,7 @@ function renderOverview() {
   });
 
   const failBanner = (window._loadFailedNames && window._loadFailedNames.length)
-    ? `<div class="load-fail-banner" style="display:block">⚠️ ${window._loadFailedNames.join(', ')} 데이터 로딩에 실패했습니다. 일부 통계가 부정확할 수 있습니다.</div>`
+    ? `<div class="load-fail-banner" style="display:block">데이터 로딩 실패: ${window._loadFailedNames.join(', ')}</div>`
     : '';
 
   page.innerHTML = `
@@ -647,29 +808,15 @@ function renderOverview() {
 
     <div class="section-title">휴면 위험 거래처 (미방문 3개월 이상)</div>
     <div class="card">
-      ${dormantRisk.length ? `
-        <table class="dt">
-          <thead><tr><th>거래처명</th><th>담당자</th><th>마지막거래일</th><th>경과일</th></tr></thead>
-          <tbody id="dormant-risk-tbody">
-            ${dormantRisk.slice(0,8).map(r => renderDormantRiskRow(r)).join('')}
-          </tbody>
-        </table>
-        ${dormantRisk.length > 8 ? `
-          <div id="dormant-risk-extra" style="display:none">
-            <table class="dt"><tbody>
-              ${dormantRisk.slice(8).map(r => renderDormantRiskRow(r)).join('')}
-            </tbody></table>
-          </div>
-          <div style="display:flex;gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap">
-            <button class="chip-btn" id="dormant-toggle-btn" onclick="toggleDormantRiskExtra()">외 ${dormantRisk.length-8}건 더 보기</button>
-            <button class="chip-btn" onclick="goToAccountsFiltered('dormant')">거래처 관리에서 전체 보기 →</button>
-          </div>
-        ` : `
-          <div style="margin-top:8px">
-            <button class="chip-btn" onclick="goToAccountsFiltered('dormant')">거래처 관리에서 전체 보기 →</button>
-          </div>
-        `}
-      ` : `<div class="empty-hint">휴면 위험 거래처가 없습니다.</div>`}
+      <div class="filterbar" style="margin-bottom:12px">
+        <select id="ov-dr-filter-type" style="background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:7px 10px;color:var(--text);font-size:12.5px">
+          <option value="all">전체</option>
+          <option value="region">지역별</option>
+          <option value="staff">사원별</option>
+        </select>
+        <select id="ov-dr-filter-value" style="background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:7px 10px;color:var(--text);font-size:12.5px;display:none"></select>
+      </div>
+      <div id="ov-dormant-risk-holder"></div>
     </div>
 
     <div class="section-title">주력 품목 TOP3</div>
@@ -686,10 +833,81 @@ function renderOverview() {
     </div>
   `;
 
+  document.getElementById('ov-dr-filter-type').addEventListener('change', onOvDrFilterTypeChange);
+  document.getElementById('ov-dr-filter-value').addEventListener('change', renderOvDormantRisk);
+  renderOvDormantRisk();
+
   document.getElementById('ov-item-filter-type').addEventListener('change', onOvItemFilterTypeChange);
   document.getElementById('ov-item-filter-value').addEventListener('change', renderOvItemTop3);
   renderOvItemTop3();
 }
+
+function fillOvFilterValueOptions(selectEl, type) {
+  if (type === 'all') {
+    selectEl.style.display = 'none';
+    selectEl.innerHTML = '';
+  } else if (type === 'region') {
+    selectEl.style.display = '';
+    selectEl.innerHTML = ['광주','전남','전북'].map(r => `<option value="${r}">${r}</option>`).join('');
+  } else if (type === 'staff') {
+    selectEl.style.display = '';
+    const staffSet = new Set();
+    [...data.active, ...data.new, ...data.dormant].forEach(r => { if (r['담당자']) staffSet.add(r['담당자']); });
+    selectEl.innerHTML = [...staffSet].sort().map(s => `<option value="${escHtml(s)}">${escHtml(s)}</option>`).join('');
+  }
+}
+
+function onOvDrFilterTypeChange() {
+  fillOvFilterValueOptions(document.getElementById('ov-dr-filter-value'), document.getElementById('ov-dr-filter-type').value);
+  renderOvDormantRisk();
+}
+
+function renderOvDormantRisk() {
+  const type = document.getElementById('ov-dr-filter-type').value;
+  const val = document.getElementById('ov-dr-filter-value').value;
+  const activeRows = filterByScope(data.active);
+
+  let rows = activeRows;
+  if (type === 'region') {
+    rows = rows.filter(r => extractSido(r['주소']) === val);
+  } else if (type === 'staff') {
+    rows = rows.filter(r => r['담당자'] === val);
+  }
+
+  const dormantRisk = rows.map(r => {
+    const d = parseDateLoose(r['마지막거래일']);
+    const days = daysSince(d);
+    return Object.assign({}, r, { _days: days });
+  }).filter(r => r._days !== null && r._days >= 90)
+    .sort((a,b) => b._days - a._days);
+
+  const holder = document.getElementById('ov-dormant-risk-holder');
+  if (!holder) return;
+  holder.innerHTML = dormantRisk.length ? `
+    <table class="dt">
+      <thead><tr><th>거래처명</th><th>담당자</th><th>마지막거래일</th><th>경과일</th></tr></thead>
+      <tbody id="dormant-risk-tbody">
+        ${dormantRisk.slice(0,8).map(r => renderDormantRiskRow(r)).join('')}
+      </tbody>
+    </table>
+    ${dormantRisk.length > 8 ? `
+      <div id="dormant-risk-extra" style="display:none">
+        <table class="dt"><tbody>
+          ${dormantRisk.slice(8).map(r => renderDormantRiskRow(r)).join('')}
+        </tbody></table>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button class="chip-btn" id="dormant-toggle-btn" onclick="toggleDormantRiskExtra()">외 ${dormantRisk.length-8}건 더 보기</button>
+        <button class="chip-btn" onclick="goToAccountsFiltered('dormant')">거래처 관리에서 전체 보기 →</button>
+      </div>
+    ` : `
+      <div style="margin-top:8px">
+        <button class="chip-btn" onclick="goToAccountsFiltered('dormant')">거래처 관리에서 전체 보기 →</button>
+      </div>
+    `}
+  ` : `<div class="empty-hint">해당 조건에 휴면 위험 거래처가 없습니다.</div>`;
+}
+
 
 function renderDormantRiskRow(r) {
   return `<tr>
@@ -741,6 +959,8 @@ function renderOvItemTop3() {
   const lookup = buildAccountLookup();
 
   const itemTotals = {};
+  const itemOriginCnt = {}; // 품목별 원산지 빈도 (여러 거래처에 걸쳐 최빈값을 대표 원산지로 표시)
+  const itemBrandCnt = {};  // 품목별 브랜드 빈도 (동일 방식)
   data.top5raw.forEach(r => {
     if (type !== 'all') {
       const info = lookup.get(normName(r['거래처명']));
@@ -749,18 +969,34 @@ function renderOvItemTop3() {
       if (type === 'staff' && info.담당자 !== val) return;
     }
     for (let i=1;i<=5;i++) {
-      const nm = r[`TOP${i}_품목`], kg = parseFloat(r[`TOP${i}_KG`]);
+      const nm = r[`TOP${i}_품목`], kg = parseFloat(r[`TOP${i}_KG`]), origin = r[`TOP${i}_원산지`], brand = r[`TOP${i}_브랜드`];
       if (!nm || isNaN(kg)) continue;
       itemTotals[nm] = (itemTotals[nm]||0) + kg;
+      if (origin) {
+        if (!itemOriginCnt[nm]) itemOriginCnt[nm] = {};
+        itemOriginCnt[nm][origin] = (itemOriginCnt[nm][origin]||0) + 1;
+      }
+      if (brand) {
+        if (!itemBrandCnt[nm]) itemBrandCnt[nm] = {};
+        itemBrandCnt[nm][brand] = (itemBrandCnt[nm][brand]||0) + 1;
+      }
     }
   });
+  function topOf(cntMap, nm) {
+    const oc = cntMap[nm];
+    if (!oc) return '';
+    return Object.entries(oc).sort((a,b)=>b[1]-a[1])[0][0];
+  }
   const topItems = Object.entries(itemTotals).sort((a,b)=>b[1]-a[1]).slice(0,3);
   const holder = document.getElementById('ov-item-top3');
   if (!holder) return;
   holder.innerHTML = topItems.length ? topItems.map(([nm,kg],i) => {
     const max = topItems[0][1];
+    const origin = topOf(itemOriginCnt, nm);
+    const brand = topOf(itemBrandCnt, nm);
+    const tagParts = [origin, brand].filter(Boolean);
     return `<div class="barrow">
-      <div class="blabel">${i+1}. ${escHtml(nm)}</div>
+      <div class="blabel">${i+1}. ${escHtml(nm)}${tagParts.length?` <span style="color:var(--muted);font-weight:400">(${tagParts.map(escHtml).join(', ')})</span>`:''}</div>
       <div class="btrack"><div class="bfill" style="width:${Math.max(6,kg/max*100)}%"></div></div>
       <div class="bval">${kg.toLocaleString()}kg</div>
     </div>`;
@@ -903,9 +1139,13 @@ function renderStaffContent() {
   holder.innerHTML = `
     <div class="section-title">사원별 거래처 현황</div>
     <div class="card">
+      <div class="stat-sub" style="margin-bottom:10px">
+        '신규거래처 전환'은 매출 발생 기준으로 자동 분류된 현재 시점 누적 수이며 선택 기간과 무관합니다.
+        나머지 지표(등록/방문률/방문완료율)는 선택한 기간 기준입니다.
+      </div>
       ${staffList.length ? `
         <table class="dt">
-          <thead><tr><th>사원명</th><th>기존</th><th>신규</th><th>휴면</th><th>신규영업처 등록</th><th>신규영업처 방문률</th><th>영업계획 방문완료율</th></tr></thead>
+          <thead><tr><th>사원명</th><th>기존</th><th>신규거래처 전환</th><th>휴면</th><th>신규영업처 등록</th><th>신규영업처 방문률</th><th>영업계획 방문완료율</th></tr></thead>
           <tbody>
             ${staffList.map(name => {
               const ps = planStats(name);
@@ -1407,23 +1647,48 @@ function renderItemsContent() {
   });
 
   const itemTotals = {};
+  const itemOriginCnt = {};
+  const itemBrandCnt = {};
   matched.forEach(r => {
     for (let i=1;i<=5;i++) {
-      const nm = r[`TOP${i}_품목`], kg = parseFloat(r[`TOP${i}_KG`]);
+      const nm = r[`TOP${i}_품목`], kg = parseFloat(r[`TOP${i}_KG`]), origin = r[`TOP${i}_원산지`], brand = r[`TOP${i}_브랜드`];
       if (!nm || isNaN(kg)) continue;
       itemTotals[nm] = (itemTotals[nm]||0) + kg;
+      if (origin) {
+        if (!itemOriginCnt[nm]) itemOriginCnt[nm] = {};
+        itemOriginCnt[nm][origin] = (itemOriginCnt[nm][origin]||0) + 1;
+      }
+      if (brand) {
+        if (!itemBrandCnt[nm]) itemBrandCnt[nm] = {};
+        itemBrandCnt[nm][brand] = (itemBrandCnt[nm][brand]||0) + 1;
+      }
     }
   });
+  function topOf(cntMap, nm) {
+    const oc = cntMap[nm];
+    if (!oc) return '';
+    return Object.entries(oc).sort((a,b)=>b[1]-a[1])[0][0];
+  }
   const sortedItems = Object.entries(itemTotals).sort((a,b)=>b[1]-a[1]);
   const max = sortedItems.length ? sortedItems[0][1] : 1;
 
-  document.getElementById('items-total-card').innerHTML = sortedItems.length ? sortedItems.map(([nm,kg]) => `
-    <div class="barrow">
-      <div class="blabel">${escHtml(nm)}</div>
+  document.getElementById('items-total-card').innerHTML = sortedItems.length ? sortedItems.map(([nm,kg]) => {
+    const origin = topOf(itemOriginCnt, nm);
+    const brand = topOf(itemBrandCnt, nm);
+    const tagParts = [origin, brand].filter(Boolean);
+    return `<div class="barrow">
+      <div class="blabel">${escHtml(nm)}${tagParts.length?` <span style="color:var(--muted);font-weight:400">(${tagParts.map(escHtml).join(', ')})</span>`:''}</div>
       <div class="btrack"><div class="bfill" style="width:${Math.max(4,kg/max*100)}%"></div></div>
       <div class="bval">${kg.toLocaleString()}kg</div>
-    </div>
-  `).join('') : `<div class="empty-hint">해당 조건에 품목 데이터가 없습니다.</div>`;
+    </div>`;
+  }).join('') : `<div class="empty-hint">해당 조건에 품목 데이터가 없습니다.</div>`;
+
+  function fmtTopCell(r, i) {
+    const nm = r[`TOP${i}_품목`], kg = r[`TOP${i}_KG`], origin = r[`TOP${i}_원산지`], brand = r[`TOP${i}_브랜드`];
+    if (!nm) return '-';
+    const tagParts = [origin, brand].filter(Boolean);
+    return `${escHtml(nm)} ${kg?`<span style="color:var(--muted)">(${kg}kg${tagParts.length?', '+tagParts.map(escHtml).join(', '):''})</span>`:''}`;
+  }
 
   document.getElementById('items-detail-card').innerHTML = matched.length ? `
     <table class="dt">
@@ -1431,9 +1696,9 @@ function renderItemsContent() {
       <tbody>
         ${matched.map(r => `<tr>
           <td>${escHtml(r['거래처명'])}</td>
-          <td>${escHtml(r['TOP1_품목']||'-')} ${r['TOP1_KG']?`<span style="color:var(--muted)">(${r['TOP1_KG']}kg)</span>`:''}</td>
-          <td>${escHtml(r['TOP2_품목']||'-')} ${r['TOP2_KG']?`<span style="color:var(--muted)">(${r['TOP2_KG']}kg)</span>`:''}</td>
-          <td>${escHtml(r['TOP3_품목']||'-')} ${r['TOP3_KG']?`<span style="color:var(--muted)">(${r['TOP3_KG']}kg)</span>`:''}</td>
+          <td>${fmtTopCell(r,1)}</td>
+          <td>${fmtTopCell(r,2)}</td>
+          <td>${fmtTopCell(r,3)}</td>
         </tr>`).join('')}
       </tbody>
     </table>` : `<div class="empty-hint">데이터가 없습니다.</div>`;
@@ -1459,6 +1724,8 @@ function renderItemsContent() {
 // =====================================================
 // 동선 지도 탭
 // =====================================================
+let routePeriod = { mode: 'today', from: null, to: null };
+
 function initRoutePage() {
   const page = document.getElementById('page-route');
   const staffSet = new Set();
@@ -1474,6 +1741,15 @@ function initRoutePage() {
             <option value="">전체</option>
             ${staffList.map(s => `<option value="${escHtml(s)}">${escHtml(s)}</option>`).join('')}
           </select>
+        </div>
+        <div class="map-side-sec">
+          <div class="map-side-label">기간</div>
+          <div class="filterbar" id="route-period-bar" style="gap:6px">
+            <button class="chip-btn" data-period="today" style="padding:5px 10px;font-size:11px">오늘</button>
+            <button class="chip-btn" data-period="7d" style="padding:5px 10px;font-size:11px">7일</button>
+            <button class="chip-btn" data-period="30d" style="padding:5px 10px;font-size:11px">한달</button>
+          </div>
+          <div id="route-period-note" style="display:none;font-size:10.5px;color:var(--muted);margin-top:6px">기간이 하루를 넘으면 동선 순서 연결선은 표시되지 않고 마커만 표시됩니다.</div>
         </div>
         <div class="map-side-sec">
           <div class="map-side-label">범례</div>
@@ -1496,15 +1772,44 @@ function initRoutePage() {
   });
 
   document.getElementById('route-staff-sel').onchange = renderRoute;
+  document.getElementById('route-period-bar').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-period]');
+    if (!btn) return;
+    routePeriod.mode = btn.dataset.period;
+    updateRoutePeriodButtons();
+    renderRoute();
+  });
+  updateRoutePeriodButtons();
   renderRoute();
+}
+
+function updateRoutePeriodButtons() {
+  document.querySelectorAll('#route-period-bar [data-period]').forEach(btn => {
+    btn.classList.toggle('on', btn.dataset.period === routePeriod.mode);
+  });
+  document.getElementById('route-period-note').style.display = routePeriod.mode === 'today' ? 'none' : '';
 }
 
 function renderRoute() {
   const staffSel = document.getElementById('route-staff-sel').value;
-  let rows = filterByScope(data.plan);
+  const [rangeFrom, rangeTo] = getRoutePeriodRange();
+
+  let rows = filterByScope(data.plan).filter(r => {
+    const d = parseDateLoose(r['날짜']);
+    if (!d) return false;
+    if (rangeFrom && d < rangeFrom) return false;
+    if (rangeTo && d > rangeTo) return false;
+    return true;
+  });
   if (staffSel) rows = rows.filter(r => r['사원명'] === staffSel);
   rows = rows.filter(r => !isNaN(parseFloat(r['위도'])) && !isNaN(parseFloat(r['경도'])));
-  rows.sort((a,b) => (parseInt(a['No'])||0) - (parseInt(b['No'])||0));
+  // 오늘 하루만 볼 때는 방문 순서(No)로, 여러 날짜가 섞이면 날짜순으로 정렬
+  rows.sort((a,b) => {
+    if (routePeriod.mode === 'today') return (parseInt(a['No'])||0) - (parseInt(b['No'])||0);
+    const da = parseDateLoose(a['날짜']), db = parseDateLoose(b['날짜']);
+    if (da && db && da.getTime() !== db.getTime()) return da - db;
+    return (parseInt(a['No'])||0) - (parseInt(b['No'])||0);
+  });
 
   clearIW();
   mgrMarkers.forEach(m => m.setMap(null)); mgrMarkers = [];
@@ -1512,7 +1817,7 @@ function renderRoute() {
 
   const list = document.getElementById('route-list');
   if (!rows.length) {
-    list.innerHTML = `<div class="empty-hint">오늘 등록된 영업계획이 없습니다.<br>(영업계획 시트는 실사용 전으로, 아직 데이터가 없을 수 있습니다.)</div>`;
+    list.innerHTML = `<div class="empty-hint">해당 기간에 등록된 영업계획이 없습니다.<br>(영업계획 시트는 실사용 전으로, 아직 데이터가 없을 수 있습니다.)</div>`;
     return;
   }
 
@@ -1533,7 +1838,7 @@ function renderRoute() {
       if (curIW) curIW.setMap(null);
       curIW = new kakao.maps.CustomOverlay({
         position:pos, yAnchor:1.6,
-        content:`<div class="iw"><div class="iw-name">${escHtml(r['거래처명'])}</div><div class="iw-addr">${escHtml(r['주소']||'')}</div><div class="iw-mgr">${visited?'방문완료':'미방문'} · ${escHtml(r['사원명'])}</div></div>`
+        content:`<div class="iw"><div class="iw-name">${escHtml(r['거래처명'])}</div><div class="iw-addr">${escHtml(r['주소']||'')}</div><div class="iw-mgr">${visited?'방문완료':'미방문'} · ${escHtml(r['사원명'])} · ${escHtml(r['날짜']||'')}</div></div>`
       });
       curIW.setMap(mgrMap);
     });
@@ -1544,9 +1849,12 @@ function renderRoute() {
     </div>`;
   }).join('');
 
-  const polyline = new kakao.maps.Polyline({ path, strokeWeight:3, strokeColor:COLORS.route, strokeOpacity:.8, strokeStyle:'solid' });
-  polyline.setMap(mgrMap);
-  mgrPolylines.push(polyline);
+  // 오늘 하루만 볼 때만 동선 순서를 선으로 연결 — 여러 날짜가 섞이면 실제 동선과 무관한 선이 그려지므로 생략
+  if (routePeriod.mode === 'today') {
+    const polyline = new kakao.maps.Polyline({ path, strokeWeight:3, strokeColor:COLORS.route, strokeOpacity:.8, strokeStyle:'solid' });
+    polyline.setMap(mgrMap);
+    mgrPolylines.push(polyline);
+  }
   mgrMap.setBounds(bounds);
 
   list.querySelectorAll('.route-item').forEach(el => {
@@ -1555,6 +1863,22 @@ function renderRoute() {
       mgrMap.panTo(path[idx]);
     };
   });
+}
+
+// 동선지도 전용 기간 범위 계산 (사원별현황의 getStaffDateRange와 로직은 같지만 상태 변수가 독립적)
+function getRoutePeriodRange() {
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (routePeriod.mode === 'today') {
+    return [todayStart, new Date(todayStart.getTime()+86400000-1)];
+  }
+  if (routePeriod.mode === '7d') {
+    return [new Date(todayStart.getTime()-6*86400000), new Date(todayStart.getTime()+86400000-1)];
+  }
+  if (routePeriod.mode === '30d') {
+    return [new Date(todayStart.getTime()-29*86400000), new Date(todayStart.getTime()+86400000-1)];
+  }
+  return [todayStart, new Date(todayStart.getTime()+86400000-1)];
 }
 
 // =====================================================
