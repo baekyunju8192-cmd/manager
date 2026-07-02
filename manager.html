@@ -1183,69 +1183,39 @@ function daysSince(dateObj) {
 // =====================================================
 // 사원별 현황 탭
 // =====================================================
-let staffPeriod = { mode: 'today', from: null, to: null }; // mode: today|7d|30d|custom
+// '신규영업처 방문수'·'결과 분포'는 등록일 기준 집계라 조회 기간이 의미 있지만,
+// 기존/신규/휴면 거래처 수는 항상 현재 시점 스냅샷이라 기간 개념이 없음 — 그래서 기간 선택을
+// 페이지 상단 탭이 아니라 '신규영업처 방문수' 컬럼 옆 드롭다운으로 좁혀서 배치한다.
+const STAFF_PERIOD_OPTIONS = [
+  { days: 0,   label: '당일' },
+  { days: 7,   label: '최근 1주' },
+  { days: 30,  label: '최근 1개월' },
+  { days: 90,  label: '최근 3개월' },
+  { days: 180, label: '최근 6개월' },
+  { days: 365, label: '최근 1년' }
+];
+let staffPeriod = { days: 0 }; // 0 = 당일(기본값)
 
 function renderStaffPage() {
   const page = document.getElementById('page-staff');
-  page.innerHTML = `
-    <div class="filterbar" id="staff-period-bar">
-      <button class="chip-btn" data-period="today">오늘</button>
-      <button class="chip-btn" data-period="7d">최근 7일</button>
-      <button class="chip-btn" data-period="30d">최근 한달</button>
-      <input type="date" id="staff-from" style="display:none">
-      <span id="staff-date-sep" style="display:none;color:var(--muted)">~</span>
-      <input type="date" id="staff-to" style="display:none">
-      <button class="chip-btn" id="staff-custom-btn" data-period="custom">직접 선택</button>
-      <span class="stat-sub" style="margin-left:4px">※ 이 기간 설정은 '신규영업처 방문수'와 '결과 분포'에만 적용됩니다. 기존·신규·휴면 거래처 수는 항상 현재 시점 기준입니다.</span>
-    </div>
-    <div id="staff-content"></div>
-  `;
-  document.getElementById('staff-period-bar').addEventListener('click', (e) => {
-    const btn = e.target.closest('[data-period]');
-    if (!btn) return;
-    staffPeriod.mode = btn.dataset.period;
-    const showCustom = staffPeriod.mode === 'custom';
-    document.getElementById('staff-from').style.display = showCustom ? '' : 'none';
-    document.getElementById('staff-date-sep').style.display = showCustom ? '' : 'none';
-    document.getElementById('staff-to').style.display = showCustom ? '' : 'none';
-    updateStaffPeriodButtons();
-    renderStaffContent();
-  });
-  document.getElementById('staff-from').addEventListener('change', (e) => { staffPeriod.from = e.target.value; renderStaffContent(); });
-  document.getElementById('staff-to').addEventListener('change', (e) => { staffPeriod.to = e.target.value; renderStaffContent(); });
-  updateStaffPeriodButtons();
+  page.innerHTML = `<div id="staff-content"></div>`;
   renderStaffContent();
 }
 
-function updateStaffPeriodButtons() {
-  document.querySelectorAll('#staff-period-bar [data-period]').forEach(btn => {
-    btn.classList.toggle('on', btn.dataset.period === staffPeriod.mode);
-  });
-}
-
-// staffPeriod 기준으로 [from, to] Date 범위를 계산 (to는 당일 23:59:59 포함)
+// staffPeriod.days 기준으로 [from, to] Date 범위를 계산 (to는 당일 23:59:59 포함, days=0이면 당일만)
 function getStaffDateRange() {
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  if (staffPeriod.mode === 'today') {
-    return [todayStart, new Date(todayStart.getTime()+86400000-1)];
-  }
-  if (staffPeriod.mode === '7d') {
-    return [new Date(todayStart.getTime()-6*86400000), new Date(todayStart.getTime()+86400000-1)];
-  }
-  if (staffPeriod.mode === '30d') {
-    return [new Date(todayStart.getTime()-29*86400000), new Date(todayStart.getTime()+86400000-1)];
-  }
-  // custom
-  const from = staffPeriod.from ? parseDateLoose(staffPeriod.from) : null;
-  const to = staffPeriod.to ? parseDateLoose(staffPeriod.to) : null;
-  return [from, to ? new Date(to.getTime()+86400000-1) : null];
+  const todayEnd = new Date(todayStart.getTime()+86400000-1);
+  if (!staffPeriod.days) return [todayStart, todayEnd];
+  return [new Date(todayStart.getTime() - (staffPeriod.days-1)*86400000), todayEnd];
 }
 
 function renderStaffContent() {
   const holder = document.getElementById('staff-content');
   if (!holder) return;
   const [rangeFrom, rangeTo] = getStaffDateRange();
+  const periodLabel = (STAFF_PERIOD_OPTIONS.find(o => o.days === staffPeriod.days) || STAFF_PERIOD_OPTIONS[0]).label;
 
   const active = filterByScope(data.active);
   const newC = filterByScope(data.new);
@@ -1299,15 +1269,19 @@ function renderStaffContent() {
     return dist;
   }
 
+  const periodSelHtml = `<select id="staff-period-sel" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:3px 7px;color:var(--text);font-size:11px;font-weight:600;text-transform:none;letter-spacing:0;margin-left:6px">
+    ${STAFF_PERIOD_OPTIONS.map(o => `<option value="${o.days}" ${o.days===staffPeriod.days?'selected':''}>${o.label}</option>`).join('')}
+  </select>`;
+
   holder.innerHTML = `
     <div class="section-title">사원별 거래처 현황</div>
     <div class="card">
       <div class="stat-sub" style="margin-bottom:10px">
-        기존·신규·휴면은 현재 시점 거래처 수입니다(선택 기간과 무관). '신규영업처 방문수'는 선택 기간에 등록된 신규영업처 중 실제 방문 처리된 건수입니다.
+        기존·신규·휴면은 현재 시점 거래처 수입니다(조회 기간과 무관). '신규영업처 방문수'만 오른쪽 드롭다운에서 고른 기간에 등록된 건 기준입니다.
       </div>
       ${staffList.length ? `
         <table class="dt">
-          <thead><tr><th>사원명</th><th>기존</th><th>신규</th><th>휴면</th><th>신규영업처 방문수</th></tr></thead>
+          <thead><tr><th>사원명</th><th>기존</th><th>신규</th><th>휴면</th><th style="white-space:nowrap">신규영업처 방문수${periodSelHtml}</th></tr></thead>
           <tbody>
             ${staffList.map(name => {
               const pv = prospectVisitStats(name);
@@ -1324,7 +1298,7 @@ function renderStaffContent() {
       ` : `<div class="empty-hint">담당 사원 데이터가 없습니다.</div>`}
     </div>
 
-    <div class="section-title">신규영업처 결과 분포 (선택 기간 등록분)</div>
+    <div class="section-title">신규영업처 결과 분포 (${escHtml(periodLabel)} 등록분)</div>
     <div class="card">
       ${staffList.length ? staffList.map(name => {
         const dist = resultDist(name);
@@ -1343,6 +1317,15 @@ function renderStaffContent() {
       }).join('') : `<div class="empty-hint">데이터 없음</div>`}
     </div>
   `;
+
+  const periodSel = document.getElementById('staff-period-sel');
+  if (periodSel) {
+    periodSel.addEventListener('click', (e) => e.stopPropagation());
+    periodSel.addEventListener('change', (e) => {
+      staffPeriod.days = parseInt(e.target.value, 10) || 0;
+      renderStaffContent();
+    });
+  }
 }
 
 // =====================================================
@@ -1479,14 +1462,22 @@ function renderAccountsTable() {
   bindAcctCloseButtons();
 }
 
-// 거래처명 클릭 시 별도 버튼 없이 바로 카카오맵 페이지로 연결 (지도 상의 해당 위치로도 함께 이동)
+// 거래처명 클릭 시에는 카카오맵으로 연결하지 않고, 오른쪽 지도만 해당 좌표로 이동(+간단한 표시)
+// 카카오맵 페이지 연결은 지도 위의 좌표(마커)를 직접 눌렀을 때만 일어난다 (renderAccountsMap 참고)
 function bindAcctRowClicks() {
   document.querySelectorAll('.acct-name-cell[data-lat]').forEach(el => {
     el.onclick = () => {
       const lat = parseFloat(el.dataset.lat), lng = parseFloat(el.dataset.lng);
-      if (isNaN(lat) || isNaN(lng)) return;
-      if (acctMapInst) acctMapInst.panTo(new kakao.maps.LatLng(lat, lng));
-      openKakaoMap(el.dataset.name, lat, lng);
+      if (isNaN(lat) || isNaN(lng) || !acctMapInst) return;
+      const pos = new kakao.maps.LatLng(lat, lng);
+      acctMapInst.setLevel(5);
+      acctMapInst.panTo(pos);
+      clearIW();
+      curIW = new kakao.maps.CustomOverlay({
+        position:pos, yAnchor:1.4,
+        content:`<div class="iw"><div class="iw-name">${escHtml(el.dataset.name)}</div></div>`
+      });
+      curIW.setMap(acctMapInst);
     };
   });
 }
@@ -1732,13 +1723,21 @@ function renderTargetsContent() {
         </tbody>
       </table>` : `<div class="empty-hint">해당 조건의 미개척 타겟이 없습니다.</div>`;
 
-    // 업체명 클릭 시 별도 버튼 없이 바로 카카오맵 페이지로 연결 (지도 상의 해당 위치로도 함께 이동)
+    // 업체명 클릭 시에는 카카오맵으로 연결하지 않고, 오른쪽 지도만 해당 좌표로 이동(+간단한 표시)
+    // 카카오맵 페이지 연결은 지도 위의 좌표(마커)를 직접 눌렀을 때만 일어난다 (renderTargetsMap 참고)
     tableHolder.querySelectorAll('.target-row[data-lat]').forEach(el => {
       el.onclick = () => {
         const lat = parseFloat(el.dataset.lat), lng = parseFloat(el.dataset.lng);
-        if (isNaN(lat) || isNaN(lng)) return;
-        if (targetMapInst) targetMapInst.panTo(new kakao.maps.LatLng(lat, lng));
-        openKakaoMap(el.dataset.name, lat, lng);
+        if (isNaN(lat) || isNaN(lng) || !targetMapInst) return;
+        const pos = new kakao.maps.LatLng(lat, lng);
+        targetMapInst.setLevel(5);
+        targetMapInst.panTo(pos);
+        clearIW();
+        curIW = new kakao.maps.CustomOverlay({
+          position:pos, yAnchor:1.4,
+          content:`<div class="iw"><div class="iw-name">${escHtml(el.dataset.name)}</div></div>`
+        });
+        curIW.setMap(targetMapInst);
       };
     });
   }
